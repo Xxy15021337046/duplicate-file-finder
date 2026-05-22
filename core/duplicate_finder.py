@@ -65,11 +65,6 @@ class DuplicateFinder:
         cursor.execute('PRAGMA temp_store=MEMORY')  # 临时表存储在内存
         cursor.execute('PRAGMA mmap_size=268435456')  # 256MB内存映射
 
-        # 如果需要清空数据库，删除旧数据
-        if self.clear_db:
-            cursor.execute('DELETE FROM files')
-            self._log("已清空数据库中的旧数据")
-
         # 创建文件信息表
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS files (
@@ -83,6 +78,11 @@ class DuplicateFinder:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+        # 如果需要清空数据库，删除旧数据（在表创建之后执行）
+        if self.clear_db:
+            cursor.execute('DELETE FROM files')
+            self._log("已清空数据库中的旧数据")
 
         # 创建索引加速查询
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_file_size ON files(file_size)')
@@ -114,7 +114,7 @@ class DuplicateFinder:
 
     def _check_stop(self):
         """检查是否应该停止"""
-        if self.stop_flag and self.stop_flag():
+        if self.stop_flag and self.stop_flag.is_set():
             raise InterruptedError("用户请求停止扫描")
 
     def scan_directories(self, directories: List[str]):

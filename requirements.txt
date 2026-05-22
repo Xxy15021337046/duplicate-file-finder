@@ -7,7 +7,16 @@
 # 可选依赖 - 用于文件实时监控功能
 watchdog>=2.1.0
 
+# 图片相似度检测依赖
+Pillow>=9.0.0          # 图像处理
+imagehash>=4.3.0       # pHash/dHash实现
+
+# 可选优化
+numpy>=1.21.0          # 加速数值计算（可选）
+tqdm>=4.62.0           # 进度条美化（可选）
+
 # 说明：
 # 1. 核心功能（duplicate_finder.py）不需要任何第三方库
 # 2. 增量扫描（incremental_scan.py）不需要任何第三方库
 # 3. 实时监控（file_watcher.py）需要安装 watchdog
+# 4. 图片相似度检测（visual_similarity.py）需要 Pillow 和 imagehash
