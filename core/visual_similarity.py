@@ -18,6 +18,79 @@ from contextlib import contextmanager
 import multiprocessing
 
 
+def _compute_image_fingerprint(image_path: str) -> Optional[Dict]:
+    """
+    计算单张图片的指纹（全局函数，用于多进程并行计算）
+    
+    Args:
+        image_path: 图片文件路径
+    
+    Returns:
+        包含指纹信息的字典，失败返回None
+    """
+    try:
+        # 确保在多进程环境中也能正确导入模块
+        import sys
+        import os
+        # 添加项目根目录到Python路径
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
+        
+        from PIL import Image
+        import imagehash
+
+        # 加载图片
+        img = Image.open(image_path)
+
+        # 处理透明通道和调色板模式
+        if img.mode in ('RGBA', 'LA', 'P'):
+            img = img.convert('RGB')
+        elif img.mode != 'RGB':
+            img = img.convert('RGB')
+
+        # 获取尺寸
+        width, height = img.size
+
+        # 超大图片先缩小（避免内存溢出）
+        max_size = 4096
+        if width > max_size or height > max_size:
+            ratio = min(max_size / width, max_size / height)
+            new_size = (int(width * ratio), int(height * ratio))
+            img = img.resize(new_size, Image.Resampling.LANCZOS)
+
+        # 计算 pHash（感知哈希）
+        phash = imagehash.phash(img, hash_size=8)  # 8x8 = 64位
+        phash_str = str(phash)  # 转为16位十六进制字符串
+
+        # 计算 dHash（差异哈希）
+        dhash = imagehash.dhash(img, hash_size=8)
+        dhash_str = str(dhash)
+
+        # 计算颜色直方图（RGB各256 bins，共768个值）
+        histogram = img.histogram()
+        histogram_bytes = struct.pack('768I', *histogram)
+
+        return {
+            'path': image_path,
+            'width': width,
+            'height': height,
+            'phash': phash_str,
+            'dhash': dhash_str,
+            'histogram': histogram_bytes
+        }
+
+    except Exception as e:
+        # 注意：多进程环境中不能直接使用 self._log
+        import sys
+        import traceback
+        error_msg = f"[ERROR] 处理图片失败 {image_path}: {e}\n"
+        error_msg += f"Python path: {sys.path}\n"
+        error_msg += f"Traceback: {traceback.format_exc()}"
+        print(error_msg)
+        return None
+
+
 class ImageSimilarityFinder:
     """图片相似度检测器"""
 
@@ -167,7 +240,7 @@ class ImageSimilarityFinder:
 
     def compute_fingerprint(self, image_path: str) -> Optional[Dict]:
         """
-        计算单张图片的指纹
+        计算单张图片的指纹（实例方法，委托给全局函数）
 
         Args:
             image_path: 图片文件路径
@@ -175,53 +248,7 @@ class ImageSimilarityFinder:
         Returns:
             包含指纹信息的字典，失败返回None
         """
-        try:
-            from PIL import Image
-            import imagehash
-
-            # 加载图片
-            img = Image.open(image_path)
-
-            # 处理透明通道和调色板模式
-            if img.mode in ('RGBA', 'LA', 'P'):
-                img = img.convert('RGB')
-            elif img.mode != 'RGB':
-                img = img.convert('RGB')
-
-            # 获取尺寸
-            width, height = img.size
-
-            # 超大图片先缩小（避免内存溢出）
-            max_size = 4096
-            if width > max_size or height > max_size:
-                ratio = min(max_size / width, max_size / height)
-                new_size = (int(width * ratio), int(height * ratio))
-                img = img.resize(new_size, Image.Resampling.LANCZOS)
-
-            # 计算 pHash（感知哈希）
-            phash = imagehash.phash(img, hash_size=8)  # 8x8 = 64位
-            phash_str = str(phash)  # 转为16位十六进制字符串
-
-            # 计算 dHash（差异哈希）
-            dhash = imagehash.dhash(img, hash_size=8)
-            dhash_str = str(dhash)
-
-            # 计算颜色直方图（RGB各256 bins，共768个值）
-            histogram = img.histogram()
-            histogram_bytes = struct.pack('768I', *histogram)
-
-            return {
-                'path': image_path,
-                'width': width,
-                'height': height,
-                'phash': phash_str,
-                'dhash': dhash_str,
-                'histogram': histogram_bytes
-            }
-
-        except Exception as e:
-            self._log(f"处理图片失败 {image_path}: {e}", "ERROR")
-            return None
+        return _compute_image_fingerprint(image_path)
 
     def build_index(self, directories: List[str], incremental: bool = False):
         """
@@ -250,10 +277,10 @@ class ImageSimilarityFinder:
 
         self._log(f"找到 {total} 张图片，开始计算指纹...")
 
-        # 多进程并行计算指纹
+        # 多进程并行计算指纹（使用全局函数，避免传递包含Tkinter对象的self）
         with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {
-                executor.submit(self.compute_fingerprint, img['path']): img
+                executor.submit(_compute_image_fingerprint, img['path']): img
                 for img in images
             }
 
@@ -439,7 +466,7 @@ class ImageSimilarityFinder:
                     # 第3级：直方图精确比对
                     if img1[7] and img2[7]:  # 确保直方图存在
                         hist_sim = self._histogram_similarity(img1[7], img2[7])
-                        if hist_sim < 0.85:  # 相似度低于85%排除
+                        if hist_sim < 0.75:  # 相似度低于75%排除（从85%降低到75%，更宽松）
                             continue
                     else:
                         hist_sim = 0.9  # 无直方图数据时假设相似
@@ -452,11 +479,12 @@ class ImageSimilarityFinder:
 
                 group.append(img2)
                 group_scores.append(score)
-                used_ids.add(img2[0])
 
             # 如果找到相似图片，添加到结果
             if len(group) > 1:
-                used_ids.add(img1[0])
+                # 将整个组的所有图片标记为已使用（包括基准图片img1）
+                for img in group:
+                    used_ids.add(img[0])
 
                 # 计算组内平均相似度
                 avg_score = sum(group_scores) / len(group_scores) if group_scores else 0

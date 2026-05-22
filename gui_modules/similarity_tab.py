@@ -37,6 +37,7 @@ class SimilarityTab:
         # 结果相关
         self.current_groups = []
         self.hidden_groups = set()  # 隐藏的组ID
+        self.results_window = None  # 结果窗口引用
 
         self._create_widgets()
 
@@ -156,8 +157,8 @@ class SimilarityTab:
 
         ttk.Button(
             btn_frame,
-            text="查看统计",
-            command=self._view_statistics
+            text="结果",
+            command=self._show_results_window
         ).pack(side=tk.LEFT, padx=5)
 
         # 进度条
@@ -176,39 +177,13 @@ class SimilarityTab:
         self.status_label = ttk.Label(progress_frame, text="", font=("微软雅黑", 8))
         self.status_label.pack()
 
-        # 结果展示区域
-        results_frame = ttk.LabelFrame(self.frame, text="相似图片组（双击查看详情）", padding="10")
-        results_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-
-        # Treeview
-        self.tree = ttk.Treeview(results_frame, columns=('similarity', 'count', 'size'), show='tree headings')
-        self.tree.heading('#0', text='组别', command=lambda: self._sort_tree('#0'))
-        self.tree.heading('similarity', text='平均相似度', command=lambda: self._sort_tree('similarity'))
-        self.tree.heading('count', text='图片数量', command=lambda: self._sort_tree('count'))
-        self.tree.heading('size', text='总大小', command=lambda: self._sort_tree('size'))
-
-        self.tree.column('#0', width=80)
-        self.tree.column('similarity', width=100)
-        self.tree.column('count', width=80)
-        self.tree.column('size', width=100)
-
-        scrollbar = ttk.Scrollbar(results_frame, orient=tk.VERTICAL, command=self.tree.yview)
-        self.tree.configure(yscrollcommand=scrollbar.set)
-
-        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        # 绑定事件
-        self.tree.bind('<Double-Button-1>', self._on_double_click)
-        self.tree.bind('<Button-3>', self._show_context_menu)
-
         # 日志区域
         log_frame = ttk.LabelFrame(self.frame, text="运行日志", padding="10")
         log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
         self.log_text = scrolledtext.ScrolledText(
             log_frame,
-            height=8,
+            height=15,
             font=("Consolas", 9),
             wrap=tk.WORD
         )
@@ -339,9 +314,8 @@ class SimilarityTab:
         self.stop_btn.config(state=tk.NORMAL)
 
         # 清空结果
-        for item in self.tree.get_children(''):
-            self.tree.delete(item)
         self.current_groups = []
+        self.results_window = None  # 关闭结果窗口（如果存在）
 
         # 在新线程中执行
         thread = threading.Thread(
@@ -412,27 +386,16 @@ class SimilarityTab:
         for item in self.tree.get_children(''):
             self.tree.delete(item)
 
+    def _display_results(self, groups):
+        """显示检测结果（存储结果，不显示在表格中）"""
+        self.current_groups = groups
+        
         if not groups:
             self._log("未找到相似图片组")
             return
 
-        # 插入数据
-        for group in groups:
-            if group['group_id'] in self.hidden_groups:
-                continue
-
-            group_id = f"组 #{group['group_id']}"
-            similarity = f"{group['avg_similarity']:.1f}%"
-            count = f"{group['file_count']} 张"
-            total_size = self._format_size(sum(
-                self._get_file_size(f['path']) for f in group['files']
-            ))
-
-            self.tree.insert('', tk.END, text=group_id, values=(
-                similarity, count, total_size
-            ))
-
-        self._log(f"已显示 {len(groups)} 个相似组")
+        self._log(f"已存储 {len(groups)} 个相似组的结果")
+        self._log(f"点击「结果」按钮查看详细列表")
 
     def _format_size(self, size_bytes: int) -> str:
         """格式化文件大小"""
@@ -449,43 +412,297 @@ class SimilarityTab:
         except:
             return 0
 
-    def _sort_tree(self, column):
-        """排序Treeview"""
-        items = [(self.tree.set(k, column), k) for k in self.tree.get_children('')]
-
-        # 判断是否为数字列
+    def _open_location(self, file_path):
+        """打开文件位置（Windows）"""
         try:
-            float(items[0][0].replace('%', '').replace('张', '').replace('MB', '').replace('KB', ''))
-            numeric = True
-        except:
-            numeric = False
+            if os.name == 'nt':  # Windows
+                subprocess.run(f'explorer /select,"{file_path}"', shell=True)
+            else:  # Linux/Mac
+                folder = os.path.dirname(file_path)
+                subprocess.run(['xdg-open', folder])
+        except Exception as e:
+            messagebox.showerror("错误", f"无法打开文件夹: {e}")
 
-        if numeric:
-            items.sort(key=lambda x: float(x[0].replace('%', '').replace('张', '').replace('MB', '').replace('KB', '')))
-        else:
-            items.sort(key=lambda x: x[0])
+    def _stop_scan(self):
+        """停止扫描"""
+        self.main_window.stop_flag.set()
+        self.main_window._log("正在停止检测...")
+        self.start_btn.config(state=tk.NORMAL)
+        self.stop_btn.config(state=tk.DISABLED)
 
-        # 反转顺序
-        items.reverse()
+    def _show_results_window(self):
+        """显示结果窗口"""
+        if not self.current_groups:
+            messagebox.showinfo("提示", "还没有检测结果，请先执行检测！")
+            return
 
-        for index, (val, k) in enumerate(items):
-            self.tree.move(k, '', index)
+        # 如果窗口已存在，则聚焦到该窗口
+        if self.results_window and self.results_window.winfo_exists():
+            self.results_window.lift()
+            self.results_window.focus()
+            return
 
-    def _on_double_click(self, event):
-        """双击事件处理"""
-        selection = self.tree.selection()
+        # 创建结果窗口
+        self.results_window = tk.Toplevel(self.main_window.root)
+        self.results_window.title("相似度检测结果")
+        self.results_window.geometry("900x600")
+
+        # 标题和摘要（与精确匹配保持一致）
+        header_frame = ttk.Frame(self.results_window)
+        header_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        ttk.Label(header_frame, text=f"找到 {len(self.current_groups)} 个相似组",
+                 font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT)
+
+        # 筛选区域（与精确匹配保持一致的布局）
+        filter_frame = ttk.Frame(self.results_window)
+        filter_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        # 后缀筛选
+        ttk.Label(filter_frame, text="后缀:").pack(side=tk.LEFT, padx=5)
+        suffix_var = tk.StringVar()
+        suffix_entry = ttk.Entry(filter_frame, textvariable=suffix_var, width=15)
+        suffix_entry.pack(side=tk.LEFT, padx=5)
+
+        # 大小范围筛选（单位下拉框在最后）
+        ttk.Label(filter_frame, text="最小大小:").pack(side=tk.LEFT, padx=(15, 2))
+        min_size_var = tk.StringVar()
+        min_size_entry = ttk.Entry(filter_frame, textvariable=min_size_var, width=8)
+        min_size_entry.pack(side=tk.LEFT, padx=2)
+
+        ttk.Label(filter_frame, text="~").pack(side=tk.LEFT, padx=2)
+
+        ttk.Label(filter_frame, text="最大大小:").pack(side=tk.LEFT, padx=2)
+        max_size_var = tk.StringVar()
+        max_size_entry = ttk.Entry(filter_frame, textvariable=max_size_var, width=8)
+        max_size_entry.pack(side=tk.LEFT, padx=2)
+
+        unit_var = tk.StringVar(value="KB")
+        unit_combo = ttk.Combobox(filter_frame, textvariable=unit_var, values=["B", "KB", "MB", "GB"],
+                                  width=5, state="readonly")
+        unit_combo.pack(side=tk.LEFT, padx=2)
+
+        ttk.Button(filter_frame, text="应用筛选", command=lambda: self._apply_filters(
+            suffix_var.get(), min_size_var.get(), max_size_var.get(), unit_var.get()
+        )).pack(side=tk.LEFT, padx=10)
+
+        ttk.Button(filter_frame, text="清除筛选", command=self._clear_filters).pack(side=tk.LEFT, padx=5)
+
+        # Treeview
+        tree_frame = ttk.Frame(self.results_window)
+        tree_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        self.results_tree = ttk.Treeview(tree_frame, columns=('similarity', 'count', 'size', 'suffix', 'action'), show='tree headings')
+        self.results_tree.heading('#0', text='组别')
+        self.results_tree.heading('similarity', text='平均相似度')
+        self.results_tree.heading('count', text='图片数量')
+        self.results_tree.heading('size', text='总大小')
+        self.results_tree.heading('suffix', text='后缀')
+        self.results_tree.heading('action', text='操作')
+
+        self.results_tree.column('#0', width=80)
+        self.results_tree.column('similarity', width=100)
+        self.results_tree.column('count', width=80)
+        self.results_tree.column('size', width=100)
+        self.results_tree.column('suffix', width=150)
+        self.results_tree.column('action', width=60)
+
+        scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.results_tree.yview)
+        self.results_tree.configure(yscrollcommand=scrollbar.set)
+
+        self.results_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # 绑定事件（只绑定一次）
+        self.results_tree.bind('<Double-Button-1>', self._on_double_click_group)
+        self.results_tree.bind('<Button-3>', self._show_context_menu)
+        self.results_tree.bind('<ButtonRelease-1>', self._on_click_actions_column)
+
+        # 初始显示所有结果
+        self._display_all_results()
+
+    def _display_all_results(self):
+        """显示所有结果"""
+        # 清空现有数据
+        for item in self.results_tree.get_children(''):
+            self.results_tree.delete(item)
+
+        # 插入数据
+        for group in self.current_groups:
+            if group['group_id'] in self.hidden_groups:
+                continue
+
+            group_id = f"组 #{group['group_id']}"
+            similarity = f"{group['avg_similarity']:.1f}%"
+            count = f"{group['file_count']} 张"
+            total_size = self._format_size(sum(
+                self._get_file_size(f['path']) for f in group['files']
+            ))
+            
+            # 提取后缀
+            suffixes = set()
+            for f in group['files']:
+                ext = os.path.splitext(f['path'])[1].lower()
+                if ext:
+                    suffixes.add(ext[1:])  # 去掉点
+            
+            suffix_str = ', '.join(sorted(suffixes)) if suffixes else ''
+
+            self.results_tree.insert('', tk.END, text=group_id, values=(
+                similarity, count, total_size, suffix_str, "隐藏"
+            ), tags=(str(group['group_id']),))
+
+    def _apply_filters(self, suffix: str, min_size: str, max_size: str, unit: str):
+        """应用筛选条件"""
+        # 清空现有数据
+        for item in self.results_tree.get_children(''):
+            self.results_tree.delete(item)
+
+        # 转换大小为字节
+        multipliers = {'B': 1, 'KB': 1024, 'MB': 1024**2, 'GB': 1024**3}
+        multiplier = multipliers.get(unit, 1)
+        
+        min_bytes = 0
+        max_bytes = float('inf')
+        
+        try:
+            if min_size:
+                min_bytes = float(min_size) * multiplier
+        except ValueError:
+            pass
+        
+        try:
+            if max_size:
+                max_bytes = float(max_size) * multiplier
+        except ValueError:
+            pass
+
+        # 插入符合条件的数据
+        for group in self.current_groups:
+            if group['group_id'] in self.hidden_groups:
+                continue
+
+            # 检查后缀
+            if suffix:
+                has_suffix = False
+                for f in group['files']:
+                    ext = os.path.splitext(f['path'])[1].lower()
+                    if ext and ext[1:] == suffix.lower():
+                        has_suffix = True
+                        break
+                if not has_suffix:
+                    continue
+
+            # 检查大小
+            total_bytes = sum(self._get_file_size(f['path']) for f in group['files'])
+            if total_bytes < min_bytes or total_bytes > max_bytes:
+                continue
+
+            group_id = f"组 #{group['group_id']}"
+            similarity = f"{group['avg_similarity']:.1f}%"
+            count = f"{group['file_count']} 张"
+            total_size = self._format_size(total_bytes)
+            
+            # 提取后缀
+            suffixes = set()
+            for f in group['files']:
+                ext = os.path.splitext(f['path'])[1].lower()
+                if ext:
+                    suffixes.add(ext[1:])
+            
+            suffix_str = ', '.join(sorted(suffixes)) if suffixes else ''
+
+            self.results_tree.insert('', tk.END, text=group_id, values=(
+                similarity, count, total_size, suffix_str, "隐藏"
+            ), tags=(str(group['group_id']),))
+
+    def _clear_filters(self):
+        """清除筛选条件"""
+        self._display_all_results()
+
+    def _on_click_actions_column(self, event):
+        """只在点击操作列时触发隐藏"""
+        # 调试输出
+        print(f"[DEBUG] Click event: x={event.x}, y={event.y}")
+        
+        # 检测点击的列
+        column = self.results_tree.identify_column(event.x)
+        print(f"[DEBUG] Clicked column: {column}")
+        
+        if column == '#5':  # 只有操作列（第5列，索引从#0开始）才触发
+            item = self.results_tree.identify_row(event.y)
+            print(f"[DEBUG] Clicked item: {item}")
+            if item:
+                item_text = self.results_tree.item(item, 'text')
+                print(f"[DEBUG] Item text: {item_text}")
+                try:
+                    # 从 "组 #14" 中提取数字 14
+                    group_num_str = item_text.split()[1].replace('#', '')
+                    group_num = int(group_num_str)
+                    print(f"[DEBUG] Hiding group #{group_num}")
+                    self._hide_group_by_num(group_num)
+                except Exception as e:
+                    print(f"[DEBUG] Error: {e}")
+                    import traceback
+                    traceback.print_exc()
+
+    def _hide_group_by_num(self, group_num):
+        """根据组号隐藏指定的组"""
+        self.hidden_groups.add(group_num)
+        
+        # 从Treeview中删除该行
+        for item in self.results_tree.get_children(''):
+            item_text = self.results_tree.item(item, 'text')
+            try:
+                # 从 "组 #14" 中提取数字 14
+                item_group_num = int(item_text.split()[1].replace('#', ''))
+                if item_group_num == group_num:
+                    self.results_tree.delete(item)
+                    break
+            except:
+                pass
+        
+        self.main_window._log(f"已隐藏组 #{group_num}")
+
+    def _on_double_click_group(self, event):
+        """双击组别事件处理"""
+        print(f"[DEBUG] Double-click event triggered")
+        
+        selection = self.results_tree.selection()
+        print(f"[DEBUG] Selection: {selection}")
+        
         if not selection:
             return
 
-        item_text = self.tree.item(selection[0], 'text')
+        item_text = self.results_tree.item(selection[0], 'text')
+        print(f"[DEBUG] Double-clicked item text: {item_text}")
+        
         try:
-            group_num = int(item_text.split()[1])
+            # 从 "组 #14" 中提取数字 14
+            group_num_str = item_text.split()[1].replace('#', '')
+            group_num = int(group_num_str)
+            print(f"[DEBUG] Showing details for group #{group_num}")
             self._show_group_details(group_num)
+        except Exception as e:
+            print(f"[DEBUG] Error in double-click: {e}")
+            import traceback
+            traceback.print_exc()
+        except:
+            pass
+
+    def _hide_group(self, item_id):
+        """隐藏指定的组（通过item ID）"""
+        item_text = self.results_tree.item(item_id, 'text')
+        try:
+            # 从 "组 #14" 中提取数字 14
+            group_num_str = item_text.split()[1].replace('#', '')
+            group_num = int(group_num_str)
+            self._hide_group_by_num(group_num)
         except:
             pass
 
     def _show_group_details(self, group_num):
-        """显示组详情"""
+        """显示组详情（与精确匹配保持一致）"""
         if not self.current_groups:
             return
 
@@ -498,50 +715,110 @@ class SimilarityTab:
         if not group:
             return
 
-        detail_window = tk.Toplevel(self.main_window.root)
+        # 创建详情窗口（与精确匹配一致的样式）
+        detail_window = tk.Toplevel(self.results_window)
         detail_window.title(f"相似组 #{group_num} 详情")
-        detail_window.geometry("700x500")
+        detail_window.geometry("900x600")
 
-        # 标题
-        ttk.Label(detail_window, text=f"组 #{group_num} - 相似度: {group['avg_similarity']:.1f}%",
-                 font=("微软雅黑", 12, "bold")).pack(pady=10)
+        # 标题区域（与精确匹配一致）
+        title_frame = ttk.Frame(detail_window)
+        title_frame.pack(fill=tk.X, padx=10, pady=5)
 
-        # 文件列表
-        list_frame = ttk.Frame(detail_window)
+        ttk.Label(title_frame, text=f"平均相似度: {group['avg_similarity']:.1f}%",
+                 font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT)
+        
+        ttk.Label(title_frame, text=f"  |  共 {len(group['files'])} 个相似图片",
+                 font=("微软雅黑", 10), foreground="gray").pack(side=tk.LEFT)
+
+        # 文件列表（与精确匹配一致）
+        list_frame = ttk.LabelFrame(detail_window, text="文件列表（双击路径打开文件夹）", padding="10")
         list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
-        tree = ttk.Treeview(list_frame, columns=('resolution', 'size', 'path'), show='headings')
-        tree.heading('resolution', text='分辨率')
-        tree.heading('size', text='文件大小')
-        tree.heading('path', text='文件路径')
+        # Treeview for files
+        file_tree = ttk.Treeview(
+            list_frame,
+            columns=('resolution', 'size', 'path'),
+            show='tree headings'
+        )
+        file_tree.heading('#0', text='#')
+        file_tree.heading('resolution', text='分辨率', command=lambda: self._sort_file_tree(file_tree, 'resolution'))
+        file_tree.heading('size', text='大小', command=lambda: self._sort_file_tree(file_tree, 'size'))
+        file_tree.heading('path', text='完整路径', command=lambda: self._sort_file_tree(file_tree, 'path'))
 
-        tree.column('resolution', width=100)
-        tree.column('size', width=100)
-        tree.column('path', width=400)
+        file_tree.column('#0', width=40)
+        file_tree.column('resolution', width=100)
+        file_tree.column('size', width=100)
+        file_tree.column('path', width=650)  # 增加宽度以显示完整路径
 
-        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=tree.yview)
-        tree.configure(yscrollcommand=scrollbar.set)
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=file_tree.yview)
+        file_tree.configure(yscrollcommand=scrollbar.set)
 
-        for file_info in group['files']:
-            resolution = f"{file_info['width']}x{file_info['height']}"
-            size = self._format_size(self._get_file_size(file_info['path']))
-            tree.insert('', tk.END, values=(resolution, size, file_info['path']))
-
-        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        file_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # 双击跳转
-        tree.bind('<Double-Button-1>', lambda e: self._open_file_location(tree))
+        # 插入文件数据
+        for idx, file_info in enumerate(group['files'], start=1):
+            resolution = f"{file_info['width']}x{file_info['height']}"
+            size = self._format_size(self._get_file_size(file_info['path']))
+            path = file_info['path']
+            
+            file_tree.insert('', tk.END, text=str(idx), values=(resolution, size, path))
 
-        # 按钮
+        # 绑定双击事件（双击路径打开文件夹）
+        file_tree.bind('<Double-Button-1>', lambda e: self._open_file_from_detail(file_tree))
+
+        # 按钮区域
         btn_frame = ttk.Frame(detail_window)
         btn_frame.pack(fill=tk.X, padx=10, pady=10)
 
-        ttk.Button(btn_frame, text="打开文件夹",
-                  command=lambda: self._open_selected_location(tree)).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="打开选中文件的文件夹",
+                  command=lambda: self._open_selected_location(file_tree)).pack(side=tk.LEFT, padx=5)
 
-    def _open_file_location(self, tree):
-        """打开文件所在文件夹并选中"""
+    def _sort_file_tree(self, tree, column):
+        """排序文件树（与精确匹配一致）"""
+        items = [(tree.set(k, column), k) for k in tree.get_children('')]
+        
+        # 根据列类型选择排序方式
+        if column == 'size':
+            # 文件大小列：转换为字节后排序
+            try:
+                items.sort(key=lambda x: self._parse_size_to_bytes(x[0]))
+            except:
+                items.sort(key=lambda x: x[0])
+        elif column == 'resolution':
+            # 分辨率列：按宽度排序
+            try:
+                items.sort(key=lambda x: int(x[0].split('x')[0]))
+            except:
+                items.sort(key=lambda x: x[0])
+        else:
+            # 其他列：字符串排序
+            items.sort(key=lambda x: x[0])
+
+        # 反转顺序（如果已经是升序则改为降序）
+        if hasattr(tree, '_sort_reverse') and tree._sort_reverse:
+            items.reverse()
+            tree._sort_reverse = False
+        else:
+            tree._sort_reverse = True
+
+        # 重新排列
+        for index, (val, k) in enumerate(items):
+            tree.move(k, '', index)
+
+    def _parse_size_to_bytes(self, size_str: str) -> int:
+        """将格式化的大小字符串转换为字节数（与精确匹配一致）"""
+        import re
+        match = re.match(r'([\d,.]+)\s*([KMGT]?B)', size_str)
+        if match:
+            number_str, unit = match.groups()
+            number = float(number_str.replace(',', ''))
+            multipliers = {'B': 1, 'KB': 1024, 'MB': 1024**2, 'GB': 1024**3, 'TB': 1024**4}
+            return number * multipliers.get(unit, 1)
+        return 0
+
+    def _open_file_from_detail(self, tree):
+        """从详情窗口打开文件位置"""
         selection = tree.selection()
         if not selection:
             return
@@ -562,41 +839,53 @@ class SimilarityTab:
             file_path = values[2]
             self._open_location(file_path)
 
-    def _open_location(self, file_path):
-        """打开文件位置（Windows）"""
-        try:
-            if os.name == 'nt':  # Windows
-                subprocess.run(f'explorer /select,"{file_path}"', shell=True)
-            else:  # Linux/Mac
-                folder = os.path.dirname(file_path)
-                subprocess.run(['xdg-open', folder])
-        except Exception as e:
-            messagebox.showerror("错误", f"无法打开文件夹: {e}")
-
     def _show_context_menu(self, event):
         """显示右键菜单"""
-        selection = self.tree.identify_row(event.y)
+        selection = self.results_tree.identify_row(event.y)
         if not selection:
             return
 
-        self.tree.selection_set(selection)
+        self.results_tree.selection_set(selection)
 
-        menu = tk.Menu(self.tree, tearoff=0)
-        menu.add_command(label="查看详情", command=lambda: self._on_double_click(None))
-        menu.add_command(label="打开文件夹", command=lambda: self._open_file_location(self.tree))
+        menu = tk.Menu(self.results_tree, tearoff=0)
+        menu.add_command(label="查看详情", command=lambda: self._on_double_click_group(None))
+        menu.add_command(label="打开文件夹", command=lambda: self._open_file_from_result_tree(self.results_tree))
         menu.add_separator()
         menu.add_command(label="隐藏此组", command=lambda: self._hide_group(selection))
         menu.add_command(label="显示所有隐藏的组", command=self._show_all_groups)
 
         menu.post(event.x_root, event.y_root)
 
+    def _open_file_from_result_tree(self, tree):
+        """从结果树打开文件位置"""
+        selection = tree.selection()
+        if not selection:
+            return
+
+        item_text = tree.item(selection[0], 'text')
+        try:
+            # 从 "组 #14" 中提取数字 14
+            group_num_str = item_text.split()[1].replace('#', '')
+            group_num = int(group_num_str)
+            # 找到对应的组
+            for group in self.current_groups:
+                if group['group_id'] == group_num:
+                    if group['files']:
+                        # 打开第一个文件
+                        self._open_location(group['files'][0]['path'])
+                    break
+        except:
+            pass
+
     def _hide_group(self, item_id):
         """隐藏指定的组"""
-        item_text = self.tree.item(item_id, 'text')
+        item_text = self.results_tree.item(item_id, 'text')
         try:
-            group_num = int(item_text.split()[1])
+            # 从 "组 #14" 中提取数字 14
+            group_num_str = item_text.split()[1].replace('#', '')
+            group_num = int(group_num_str)
             self.hidden_groups.add(group_num)
-            self.tree.delete(item_id)
+            self.results_tree.delete(item_id)
             self.main_window._log(f"已隐藏组 #{group_num}")
         except:
             pass
@@ -607,46 +896,5 @@ class SimilarityTab:
             return
 
         self.hidden_groups.clear()
-        self._display_results(self.current_groups)
+        self._display_all_results()
         self.main_window._log("已显示所有隐藏的组")
-
-    def _stop_scan(self):
-        """停止扫描"""
-        self.main_window.stop_flag.set()
-        self.main_window._log("正在停止检测...")
-        self.start_btn.config(state=tk.NORMAL)
-        self.stop_btn.config(state=tk.DISABLED)
-
-    def _view_statistics(self):
-        """查看统计信息"""
-        db_path = self.db_path_var.get()
-        if not os.path.exists(db_path):
-            messagebox.showwarning("警告", "数据库文件不存在！")
-            return
-
-        try:
-            from core.visual_similarity import ImageSimilarityFinder
-            finder = ImageSimilarityFinder(db_path=db_path)
-            stats = finder.get_statistics()
-
-            stats_window = tk.Toplevel(self.main_window.root)
-            stats_window.title("数据库统计")
-            stats_window.geometry("400x300")
-
-            ttk.Label(stats_window, text="图片索引统计", font=("微软雅黑", 12, "bold")).pack(pady=10)
-
-            info_frame = ttk.Frame(stats_window)
-            info_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
-
-            stats_text = f"""
-总图片数: {stats['total_images']:,}
-总文件大小: {stats['total_size_formatted']}
-不同分辨率数: {stats['unique_resolutions']}
-数据库路径: {db_path}
-            """.strip()
-
-            ttk.Label(info_frame, text=stats_text, font=("微软雅黑", 10),
-                     justify=tk.LEFT).pack(anchor=tk.W)
-
-        except Exception as e:
-            messagebox.showerror("错误", f"获取统计信息失败: {e}")
