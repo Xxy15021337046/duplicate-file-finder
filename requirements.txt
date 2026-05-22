@@ -1,0 +1,13 @@
+# 重复文件检测系统依赖包
+
+# 基础依赖（Python标准库，无需安装）
+# - os, sys, hashlib, sqlite3, json, time, argparse, pathlib
+# - concurrent.futures, collections, typing, threading, contextlib
+
+# 可选依赖 - 用于文件实时监控功能
+watchdog>=2.1.0
+
+# 说明：
+# 1. 核心功能（duplicate_finder.py）不需要任何第三方库
+# 2. 增量扫描（incremental_scan.py）不需要任何第三方库
+# 3. 实时监控（file_watcher.py）需要安装 watchdog
