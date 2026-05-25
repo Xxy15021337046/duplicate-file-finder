@@ -771,6 +771,11 @@ class SimilarityTab:
             size = self._format_size(self._get_file_size(file_info['path']))
             path = file_info['path']
             
+            # 确保路径使用Windows标准格式（统一使用反斜杠）
+            if os.name == 'nt':
+                # 将正斜杠转换为反斜杠
+                path = path.replace('/', '\\')
+            
             file_tree.insert('', tk.END, text=str(idx), values=(resolution, size, path))
 
         # 绑定双击事件（双击路径打开文件夹）
