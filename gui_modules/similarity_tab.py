@@ -415,13 +415,22 @@ class SimilarityTab:
     def _open_location(self, file_path):
         """打开文件位置（Windows）"""
         try:
+            # 调试输出
+            print(f"[DEBUG] Opening location for: {file_path}")
+            
             if os.name == 'nt':  # Windows
-                subprocess.run(f'explorer /select,"{file_path}"', shell=True)
+                # 使用列表形式避免shell转义问题，正确处理中文路径和空格
+                cmd = ['explorer', '/select,', file_path]
+                print(f"[DEBUG] Executing command: {' '.join(cmd)}")
+                subprocess.run(cmd, shell=False)
             else:  # Linux/Mac
                 folder = os.path.dirname(file_path)
                 subprocess.run(['xdg-open', folder])
         except Exception as e:
-            messagebox.showerror("错误", f"无法打开文件夹: {e}")
+            print(f"[ERROR] Failed to open location: {e}")
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("错误", f"无法打开文件夹: {e}\n\n路径: {file_path}")
 
     def _stop_scan(self):
         """停止扫描"""
@@ -825,7 +834,15 @@ class SimilarityTab:
 
         values = tree.item(selection[0], 'values')
         if len(values) >= 3:
+            # 从Treeview获取的路径可能包含反斜杠转义问题，需要正确处理
+            file_path = values[2].replace('\\', '\\\\')  # 转义反斜杠
+            # 但实际路径应该保持原样，所以直接使用原始值
             file_path = values[2]
+            
+            # 调试输出
+            print(f"[DEBUG] Opening file from detail: {file_path}")
+            print(f"[DEBUG] File exists: {os.path.exists(file_path)}")
+            
             self._open_location(file_path)
 
     def _open_selected_location(self, tree):
