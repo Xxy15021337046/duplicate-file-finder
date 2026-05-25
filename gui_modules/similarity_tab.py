@@ -775,7 +775,10 @@ class SimilarityTab:
         # 创建详情窗口（与精确匹配一致的样式）
         detail_window = tk.Toplevel(self.results_window)
         detail_window.title(f"相似组 #{group_num} 详情")
-        detail_window.geometry("900x600")
+        detail_window.geometry("1200x600")  # 增加宽度以容纳预览区域
+        
+        # 初始化缩略图缓存
+        thumbnail_cache = {}
 
         # 标题区域（与精确匹配一致）
         title_frame = ttk.Frame(detail_window)
@@ -787,9 +790,24 @@ class SimilarityTab:
         ttk.Label(title_frame, text=f"  |  共 {len(group['files'])} 个相似图片",
                  font=("微软雅黑", 10), foreground="gray").pack(side=tk.LEFT)
 
-        # 文件列表（与精确匹配一致）
-        list_frame = ttk.LabelFrame(detail_window, text="文件列表（双击路径打开文件夹）", padding="10")
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        # 主内容区域（左右分栏）
+        content_frame = ttk.Frame(detail_window)
+        content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # 左侧：文件列表
+        list_frame = ttk.LabelFrame(content_frame, text="文件列表（双击路径打开文件夹，点击行查看预览）", padding="10")
+        list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        
+        # 右侧：图片预览
+        preview_frame = ttk.LabelFrame(content_frame, text="图片预览", padding="10")
+        preview_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
+        preview_frame.config(width=300)  # 固定预览区域宽度
+        preview_frame.pack_propagate(False)  # 防止子组件改变框架大小
+        
+        # 预览图片标签
+        preview_label = ttk.Label(preview_frame, text="选择文件查看预览", 
+                                 anchor='center', foreground='gray')
+        preview_label.pack(expand=True)
 
         # Treeview for files
         file_tree = ttk.Treeview(
@@ -828,6 +846,10 @@ class SimilarityTab:
 
         # 绑定双击事件（双击路径打开文件夹）
         file_tree.bind('<Double-Button-1>', lambda e: self._open_file_from_detail(file_tree))
+        
+        # 绑定选中事件（点击行显示预览）
+        file_tree.bind('<<TreeviewSelect>>', 
+                      lambda e: self._on_file_select(file_tree, preview_label, thumbnail_cache))
 
         # 按钮区域
         btn_frame = ttk.Frame(detail_window)
@@ -835,6 +857,77 @@ class SimilarityTab:
 
         ttk.Button(btn_frame, text="打开选中文件的文件夹",
                   command=lambda: self._open_selected_location(file_tree)).pack(side=tk.LEFT, padx=5)
+
+    def _on_file_select(self, tree, preview_label, thumbnail_cache):
+        """当用户选中Treeview中的某一行时，显示图片预览"""
+        selection = tree.selection()
+        if not selection:
+            return
+        
+        # 获取选中行的路径
+        values = tree.item(selection[0], 'values')
+        if len(values) >= 3:
+            file_path = values[2]
+            
+            # 检查缓存中是否已有缩略图
+            if file_path in thumbnail_cache:
+                # 使用缓存的缩略图
+                preview_label.config(image=thumbnail_cache[file_path])
+                return
+            
+            # 异步加载缩略图（避免界面卡顿）
+            threading.Thread(
+                target=self._load_thumbnail_async,
+                args=(file_path, preview_label, thumbnail_cache),
+                daemon=True
+            ).start()
+
+    def _load_thumbnail_async(self, file_path, preview_label, thumbnail_cache):
+        """异步加载缩略图"""
+        try:
+            from PIL import Image, ImageTk
+            
+            # 检查文件是否存在
+            if not os.path.exists(file_path):
+                self.main_window.root.after(0, lambda: preview_label.config(
+                    text=f"文件不存在: {file_path}", 
+                    image='',
+                    foreground='red'
+                ))
+                return
+            
+            # 打开图片并生成缩略图
+            img = Image.open(file_path)
+            
+            # 处理透明通道和调色板模式
+            if img.mode in ('RGBA', 'LA', 'P'):
+                img = img.convert('RGB')
+            elif img.mode != 'RGB':
+                img = img.convert('RGB')
+            
+            # 计算缩略图尺寸（保持宽高比）
+            max_size = (280, 400)  # 预览区域最大尺寸
+            img.thumbnail(max_size, Image.Resampling.LANCZOS)
+            
+            # 转换为PhotoImage
+            photo = ImageTk.PhotoImage(img)
+            
+            # 缓存缩略图
+            thumbnail_cache[file_path] = photo
+            
+            # 在主线程中更新UI
+            self.main_window.root.after(0, lambda: preview_label.config(
+                image=photo,
+                text=''
+            ))
+            
+        except Exception as e:
+            error_msg = f"无法加载图片: {str(e)[:50]}"
+            self.main_window.root.after(0, lambda: preview_label.config(
+                text=error_msg,
+                image='',
+                foreground='red'
+            ))
 
     def _sort_file_tree(self, tree, column):
         """排序文件树（与精确匹配一致）"""
