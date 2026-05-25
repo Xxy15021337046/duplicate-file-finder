@@ -442,8 +442,35 @@ class SimilarityTab:
     def _show_results_window(self):
         """显示结果窗口"""
         if not self.current_groups:
-            messagebox.showinfo("提示", "还没有检测结果，请先执行检测！")
-            return
+            # 如果当前没有结果，但数据库中有数据，尝试从数据库加载并重新检测
+            db_path = self.db_path_var.get()
+            if os.path.exists(db_path):
+                try:
+                    import sqlite3
+                    conn = sqlite3.connect(db_path)
+                    cursor = conn.execute("SELECT COUNT(*) FROM image_index")
+                    count = cursor.fetchone()[0]
+                    conn.close()
+                    
+                    if count > 0:
+                        # 数据库中有图片数据，询问用户是否重新检测
+                        result = messagebox.askyesno(
+                            "检测到历史数据", 
+                            f"数据库中有 {count} 张图片的历史数据。\n\n是否重新执行相似度检测以查看结果？\n（如果不需要，请先执行新的检测）"
+                        )
+                        if result:
+                            # 用户选择重新检测
+                            self.start_scan()
+                            return
+                    else:
+                        messagebox.showinfo("提示", "还没有检测结果，请先执行检测！")
+                        return
+                except Exception as e:
+                    messagebox.showinfo("提示", "还没有检测结果，请先执行检测！")
+                    return
+            else:
+                messagebox.showinfo("提示", "还没有检测结果，请先执行检测！")
+                return
 
         # 如果窗口已存在，则聚焦到该窗口
         if self.results_window and self.results_window.winfo_exists():
