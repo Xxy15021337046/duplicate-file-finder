@@ -72,7 +72,12 @@ class DuplicateFinderGUI:
         # 标签2：相似度检测
         from gui_modules.similarity_tab import SimilarityTab
         self.similarity_tab = SimilarityTab(self.notebook, self)
-        self.notebook.add(self.similarity_tab.frame, text="相似度检测")
+        self.notebook.add(self.similarity_tab.frame, text="图片相似度检测")
+
+        # 标签3：视频相似度检测
+        from gui_modules.video_similarity_tab import VideoSimilarityTab
+        self.video_similarity_tab = VideoSimilarityTab(self.notebook, self)
+        self.notebook.add(self.video_similarity_tab.frame, text="视频相似度检测")
 
     def _create_header(self):
         """创建标题区域"""
@@ -88,7 +93,7 @@ class DuplicateFinderGUI:
 
         subtitle_label = ttk.Label(
             title_frame,
-            text="高性能 TB级数据优化 | SQLite3存储 | 并行处理 | 图片相似度检测",
+            text="高性能 TB级数据优化 | SQLite3存储 | 并行处理 | 图片/视频相似度检测",
             font=("微软雅黑", 9),
             foreground="gray"
         )
@@ -117,31 +122,6 @@ class DuplicateFinderGUI:
         ttk.Button(btn_frame, text="添加目录", command=self._add_directory).pack(fill=tk.X, pady=2)
         ttk.Button(btn_frame, text="移除选中", command=self._remove_directory).pack(fill=tk.X, pady=2)
         ttk.Button(btn_frame, text="清空全部", command=self._clear_directories).pack(fill=tk.X, pady=2)
-
-    def _start_scan(self):
-        """启动扫描（根据当前标签页决定扫描类型）"""
-        if not self.directories:
-            messagebox.showwarning("警告", "请先添加要扫描的目录！")
-            return
-
-        current_tab = self.notebook.index(self.notebook.select())
-        if current_tab == 0:  # 精确匹配标签页
-            self.exact_match_tab.start_scan()
-        else:  # 相似度检测标签页
-            self.similarity_tab.start_scan()
-
-    def _stop_scan(self):
-        """停止扫描"""
-        self.stop_flag.set()
-        self._log("正在停止扫描...")
-
-    def _view_results(self):
-        """查看结果"""
-        current_tab = self.notebook.index(self.notebook.select())
-        if current_tab == 0:
-            self.exact_match_tab.view_results()
-        else:
-            self.similarity_tab.view_results()
 
     # ==================== 目录操作方法 ====================
 
@@ -186,8 +166,10 @@ class DuplicateFinderGUI:
         current_tab = self.notebook.index(self.notebook.select())
         if current_tab == 0:  # 精确匹配标签页
             self.exact_match_tab.start_scan()
-        else:  # 相似度检测标签页
+        elif current_tab == 1:  # 相似度检测标签页
             self.similarity_tab.start_scan()
+        else:  # 视频相似度检测标签页
+            self.video_similarity_tab.start_scan()
 
     def _stop_scan(self):
         """停止扫描"""
@@ -198,8 +180,10 @@ class DuplicateFinderGUI:
         current_tab = self.notebook.index(self.notebook.select())
         if current_tab == 0:
             self.exact_match_tab.view_results()
-        else:
+        elif current_tab == 1:
             self.similarity_tab.view_results()
+        else:
+            self.video_similarity_tab.view_results()
 
     # ==================== 日志和进度方法 ====================
 
@@ -208,24 +192,30 @@ class DuplicateFinderGUI:
         current_tab = self.notebook.index(self.notebook.select())
         if current_tab == 0:
             self.exact_match_tab._log(message, level)
-        else:
+        elif current_tab == 1:
             self.similarity_tab._log(message, level)
+        else:
+            self.video_similarity_tab._log(message, level)
 
     def update_progress(self, progress: float, message: str):
         """更新进度条（委托给当前标签页）"""
         current_tab = self.notebook.index(self.notebook.select())
         if current_tab == 0:
             self.exact_match_tab.update_progress(progress, message)
-        else:
+        elif current_tab == 1:
             self.similarity_tab.update_progress(progress, message)
+        else:
+            self.video_similarity_tab.update_progress(progress, message)
 
     def update_detail(self, message: str):
         """更新详细信息（委托给当前标签页）"""
         current_tab = self.notebook.index(self.notebook.select())
         if current_tab == 0:
             self.exact_match_tab.update_detail(message)
-        else:
+        elif current_tab == 1:
             self.similarity_tab.update_detail(message)
+        else:
+            self.video_similarity_tab.update_detail(message)
 
 
 def main():

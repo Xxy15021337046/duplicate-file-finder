@@ -732,18 +732,22 @@ class ExactMatchTab:
             # Treeview for files
             file_tree = ttk.Treeview(
                 list_frame,
-                columns=('size', 'ext', 'path'),
+                columns=('size', 'ext', 'path', 'open', 'delete'),
                 show='tree headings'
             )
             file_tree.heading('#0', text='#')
             file_tree.heading('size', text='大小', command=lambda: self._sort_file_tree(file_tree, 'size'))
             file_tree.heading('ext', text='后缀', command=lambda: self._sort_file_tree(file_tree, 'ext'))
             file_tree.heading('path', text='完整路径', command=lambda: self._sort_file_tree(file_tree, 'path'))
+            file_tree.heading('open', text='打开')
+            file_tree.heading('delete', text='删除')
 
             file_tree.column('#0', width=40)
-            file_tree.column('size', width=100)
-            file_tree.column('ext', width=80)
-            file_tree.column('path', width=600)
+            file_tree.column('size', width=80)
+            file_tree.column('ext', width=60)
+            file_tree.column('path', width=310)
+            file_tree.column('open', width=40)
+            file_tree.column('delete', width=40)
 
             scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=file_tree.yview)
             file_tree.configure(yscrollcommand=scrollbar.set)
@@ -755,14 +759,64 @@ class ExactMatchTab:
                 file_tree.insert('', tk.END, text=str(i), values=(
                     size_str,
                     ext.lower() if ext else '(无)',
-                    file_info['path']
+                    file_info['path'],
+                    '打开',
+                    '删除'
                 ))
 
             file_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-            # 双击打开文件所在文件夹
-            file_tree.bind('<Double-Button-1>', lambda e: self._open_file_location(file_tree, group))
+            # 双击行：使用Windows资源管理器打开文件所在文件夹并选中该文件
+            def on_double_click(event):
+                item = file_tree.identify_row(event.y)
+                if item:
+                    idx = int(file_tree.item(item, 'text')) - 1
+                    if 0 <= idx < len(group['files']):
+                        file_path = group['files'][idx]['path']
+                        import subprocess
+                        subprocess.Popen(f'explorer /select,"{file_path}"')
+            
+            file_tree.bind('<Double-Button-1>', on_double_click)
+            
+            # 绑定操作列点击（使用更精确的检测方式）
+            def on_tree_click(event):
+                # 获取点击的列
+                column = file_tree.identify_column(event.x)
+                item = file_tree.identify_row(event.y)
+                
+                if not item:
+                    return
+                
+                values = file_tree.item(item, 'values')
+                if len(values) < 5:
+                    return
+                
+                # 获取文件信息
+                idx = int(file_tree.item(item, 'text')) - 1
+                if 0 <= idx < len(group['files']):
+                    file_info = group['files'][idx]
+                    
+                    if column == '#4':  # 打开列 - 直接运行文件
+                        try:
+                            import subprocess
+                            import sys
+                            
+                            if sys.platform == 'win32':
+                                # Windows: 使用默认程序打开文件
+                                subprocess.Popen(['start', '', file_info['path']], shell=True)
+                            elif sys.platform == 'darwin':
+                                # macOS
+                                subprocess.Popen(['open', file_info['path']])
+                            else:
+                                # Linux
+                                subprocess.Popen(['xdg-open', file_info['path']])
+                        except Exception as e:
+                            messagebox.showerror("错误", f"无法打开文件:\n{str(e)}")
+                    elif column == '#5':  # 删除列
+                        self._delete_single_file(file_tree, file_info, item, group, detail_window)
+            
+            file_tree.bind('<Button-1>', on_tree_click)
 
         except Exception as e:
             messagebox.showerror("错误", f"显示详情失败: {e}")
@@ -843,18 +897,20 @@ class ExactMatchTab:
             # Treeview for files
             file_tree = ttk.Treeview(
                 list_frame,
-                columns=('size', 'ext', 'path'),
+                columns=('size', 'ext', 'path', 'action'),
                 show='tree headings'
             )
             file_tree.heading('#0', text='#')
             file_tree.heading('size', text='大小')
             file_tree.heading('ext', text='后缀')
             file_tree.heading('path', text='路径')
+            file_tree.heading('action', text='操作')
 
             file_tree.column('#0', width=40)
-            file_tree.column('size', width=100)
-            file_tree.column('ext', width=80)
-            file_tree.column('path', width=500)
+            file_tree.column('size', width=80)
+            file_tree.column('ext', width=60)
+            file_tree.column('path', width=350)
+            file_tree.column('action', width=60)
 
             scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=file_tree.yview)
             file_tree.configure(yscrollcommand=scrollbar.set)
@@ -866,17 +922,151 @@ class ExactMatchTab:
                 file_tree.insert('', tk.END, text=str(i), values=(
                     size_str,
                     ext.lower() if ext else '(无)',
-                    file_info['path']
+                    file_info['path'],
+                    '删除'
                 ))
 
             file_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
+            # 绑定事件
             # 双击打开文件所在文件夹
             file_tree.bind('<Double-Button-1>', lambda e: self._open_file_location(file_tree, group))
+            
+            # 绑定操作列点击（使用更精确的检测方式）
+            def on_tree_click(event):
+                # 获取点击的列
+                column = file_tree.identify_column(event.x)
+                if column == '#4':  # 操作列
+                    item = file_tree.identify_row(event.y)
+                    if item:
+                        values = file_tree.item(item, 'values')
+                        if len(values) >= 4 and values[3] == '删除':
+                            # 获取文件信息
+                            idx = int(file_tree.item(item, 'text')) - 1
+                            if 0 <= idx < len(group['files']):
+                                file_info = group['files'][idx]
+                                self._delete_single_file(file_tree, file_info, item, group, detail_window)
+            
+            file_tree.bind('<Button-1>', on_tree_click)
 
         except Exception as e:
             messagebox.showerror("错误", f"显示详情失败: {e}")
+
+    def _on_click_action_column(self, tree, group, detail_window):
+        """处理操作列点击"""
+        # 获取点击位置
+        x = tree.winfo_pointerx() - tree.winfo_rootx()
+        y = tree.winfo_pointery() - tree.winfo_rooty()
+        
+        # 检查是否点击在单元格上
+        region = tree.identify("region", x, y)
+        if region != "cell":
+            return
+        
+        # 检查是否是操作列（第4列）
+        column = tree.identify_column(x)
+        if column != '#4':
+            return
+        
+        # 获取点击的行
+        item = tree.identify_row(y)
+        if not item:
+            return
+        
+        # 获取文件信息
+        idx = int(tree.item(item, 'text')) - 1
+        if 0 <= idx < len(group['files']):
+            file_info = group['files'][idx]
+            self._delete_single_file(tree, file_info, item, group, detail_window)
+
+    def _delete_single_file(self, tree, file_info, item, group, detail_window):
+        """删除单个文件（使用批处理延迟删除）"""
+        if not messagebox.askyesno("确认删除", f"确定要删除以下文件吗？\n\n{file_info['path']}\n\n此操作不可恢复！"):
+            return
+        
+        import subprocess
+        import os
+        
+        try:
+            # 创建批处理文件，延迟1秒后删除
+            bat_file = os.path.join(os.environ['TEMP'], 'force_delete.bat')
+            with open(bat_file, 'w', encoding='gbk') as f:
+                f.write('@echo off\n')
+                f.write('timeout /t 1 /nobreak >nul\n')
+                f.write(f'del /f /q "{file_info["path"]}"\n')
+                f.write('del "%~f0"\n')  # 删除自身
+            
+            # 异步执行批处理（隐藏窗口）
+            subprocess.Popen([bat_file], shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            
+            # 立即从UI中移除
+            tree.delete(item)
+            group['files'] = [f for f in group['files'] if f['path'] != file_info['path']]
+            
+            # 如果所有文件都被删除，关闭详情窗口
+            if len(tree.get_children('')) == 0:
+                detail_window.destroy()
+            
+        except Exception as e:
+            messagebox.showerror("删除失败", f"无法创建删除任务:\n{str(e)}\n\n请手动删除文件: {file_info['path']}")
+
+    def _delete_selected_files(self, tree, group, detail_window):
+        """删除选中的文件"""
+        selection = tree.selection()
+        if not selection:
+            messagebox.showwarning("警告", "请先选择要删除的文件")
+            return
+        
+        # 获取选中的文件路径
+        files_to_delete = []
+        for item in selection:
+            idx = int(tree.item(item, 'text')) - 1
+            if 0 <= idx < len(group['files']):
+                files_to_delete.append(group['files'][idx])
+        
+        if not files_to_delete:
+            return
+        
+        # 确认删除
+        file_list = "\n".join([f['path'] for f in files_to_delete[:3]])
+        if len(files_to_delete) > 3:
+            file_list += f"\n...等共{len(files_to_delete)}个文件"
+        
+        if not messagebox.askyesno("确认删除", f"确定要删除以下{len(files_to_delete)}个文件吗？\n\n{file_list}\n\n此操作不可恢复！"):
+            return
+        
+        # 执行删除
+        deleted_count = 0
+        failed_files = []
+        
+        for file_info in files_to_delete:
+            try:
+                os.remove(file_info['path'])
+                deleted_count += 1
+                # 从Treeview中移除
+                for item in tree.get_children(''):
+                    if tree.item(item, 'values')[2] == file_info['path']:
+                        tree.delete(item)
+                        break
+            except Exception as e:
+                failed_files.append((file_info['path'], str(e)))
+        
+        # 显示结果
+        if deleted_count > 0:
+            messagebox.showinfo("删除完成", f"成功删除 {deleted_count} 个文件")
+            
+            # 如果所有文件都被删除，关闭详情窗口
+            if deleted_count == len(files_to_delete) and len(tree.get_children('')) == 0:
+                detail_window.destroy()
+        
+        if failed_files:
+            error_msg = f"以下 {len(failed_files)} 个文件删除失败:\n\n"
+            for path, error in failed_files[:5]:
+                error_msg += f"{os.path.basename(path)}: {error}\n"
+            if len(failed_files) > 5:
+                error_msg += f"...等共{len(failed_files)}个文件"
+            messagebox.showerror("删除失败", error_msg)
 
     def _open_file_location(self, tree, group):
         """打开选中文件的位置"""

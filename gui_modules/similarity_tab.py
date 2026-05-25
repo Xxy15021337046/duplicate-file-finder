@@ -33,6 +33,9 @@ class SimilarityTab:
         self.format_gif = tk.BooleanVar(value=True)
         self.format_bmp = tk.BooleanVar(value=True)
         self.format_webp = tk.BooleanVar(value=True)
+        
+        # 自定义格式输入
+        self.custom_format_var = tk.StringVar(value="")
 
         # 结果相关
         self.current_groups = []
@@ -121,19 +124,38 @@ class SimilarityTab:
         format_frame = ttk.LabelFrame(self.frame, text="图片格式", padding="10")
         format_frame.pack(fill=tk.X, padx=10, pady=5)
 
-        ttk.Checkbutton(format_frame, text="全部", variable=self.format_all,
+        # 第一行：全选 + 常用格式
+        format_row1 = ttk.Frame(format_frame)
+        format_row1.pack(fill=tk.X, pady=2)
+
+        ttk.Checkbutton(format_row1, text="全部", variable=self.format_all,
                        command=self._on_format_all_changed).pack(side=tk.LEFT, padx=5)
 
-        ttk.Checkbutton(format_frame, text="JPG", variable=self.format_jpg,
+        ttk.Checkbutton(format_row1, text="JPG", variable=self.format_jpg,
                        command=self._on_format_item_changed).pack(side=tk.LEFT, padx=2)
-        ttk.Checkbutton(format_frame, text="PNG", variable=self.format_png,
+        ttk.Checkbutton(format_row1, text="PNG", variable=self.format_png,
                        command=self._on_format_item_changed).pack(side=tk.LEFT, padx=2)
-        ttk.Checkbutton(format_frame, text="GIF", variable=self.format_gif,
+        ttk.Checkbutton(format_row1, text="GIF", variable=self.format_gif,
                        command=self._on_format_item_changed).pack(side=tk.LEFT, padx=2)
-        ttk.Checkbutton(format_frame, text="BMP", variable=self.format_bmp,
+        ttk.Checkbutton(format_row1, text="BMP", variable=self.format_bmp,
                        command=self._on_format_item_changed).pack(side=tk.LEFT, padx=2)
-        ttk.Checkbutton(format_frame, text="WebP", variable=self.format_webp,
+        ttk.Checkbutton(format_row1, text="WebP", variable=self.format_webp,
                        command=self._on_format_item_changed).pack(side=tk.LEFT, padx=2)
+
+        # 第二行：自定义后缀输入
+        format_row2 = ttk.Frame(format_frame)
+        format_row2.pack(fill=tk.X, pady=5)
+
+        ttk.Label(format_row2, text="自定义后缀:", width=12).pack(side=tk.LEFT)
+        custom_entry = ttk.Entry(format_row2, textvariable=self.custom_format_var, width=50)
+        custom_entry.pack(side=tk.LEFT, padx=5)
+        
+        ttk.Label(
+            format_row2, 
+            text="(多个用逗号、分号或空格分隔，如: jpeg,tiff,svg)",
+            foreground="gray",
+            font=("微软雅黑", 8)
+        ).pack(side=tk.LEFT)
 
         # 控制按钮
         btn_frame = ttk.Frame(self.frame, padding="5")
@@ -247,6 +269,7 @@ class SimilarityTab:
             self.format_gif.set(True)
             self.format_bmp.set(True)
             self.format_webp.set(True)
+            self.custom_format_var.set("")  # 清空自定义输入
         else:
             self.format_jpg.set(False)
             self.format_png.set(False)
@@ -264,6 +287,10 @@ class SimilarityTab:
             self.format_webp.get()
         ])
         self.format_all.set(all_checked)
+        
+        # 如果手动取消某个格式，清空自定义输入
+        if not all_checked:
+            self.custom_format_var.set("")
 
     def _browse_db(self):
         """浏览数据库文件"""
@@ -279,19 +306,32 @@ class SimilarityTab:
         """获取支持的图片格式"""
         formats = set()
 
+        # 处理复选框选中的格式
         if self.format_all.get():
-            return {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+            formats.update({'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'})
+        else:
+            if self.format_jpg.get():
+                formats.update(['.jpg', '.jpeg'])
+            if self.format_png.get():
+                formats.add('.png')
+            if self.format_gif.get():
+                formats.add('.gif')
+            if self.format_bmp.get():
+                formats.add('.bmp')
+            if self.format_webp.get():
+                formats.add('.webp')
 
-        if self.format_jpg.get():
-            formats.update(['.jpg', '.jpeg'])
-        if self.format_png.get():
-            formats.add('.png')
-        if self.format_gif.get():
-            formats.add('.gif')
-        if self.format_bmp.get():
-            formats.add('.bmp')
-        if self.format_webp.get():
-            formats.add('.webp')
+        # 处理自定义后缀输入
+        custom_input = self.custom_format_var.get().strip()
+        if custom_input:
+            import re
+            custom_list = re.split(r'[,;\s]+', custom_input)
+            for ext in custom_list:
+                ext = ext.strip().lower()
+                if ext and not ext.startswith('.'):
+                    ext = '.' + ext
+                if ext:
+                    formats.add(ext)
 
         return formats
 
@@ -908,18 +948,22 @@ class SimilarityTab:
         # Treeview for files
         file_tree = ttk.Treeview(
             list_frame,
-            columns=('resolution', 'size', 'path'),
+            columns=('resolution', 'size', 'path', 'open', 'delete'),
             show='tree headings'
         )
         file_tree.heading('#0', text='#')
         file_tree.heading('resolution', text='分辨率', command=lambda: self._sort_file_tree(file_tree, 'resolution'))
         file_tree.heading('size', text='大小', command=lambda: self._sort_file_tree(file_tree, 'size'))
         file_tree.heading('path', text='完整路径', command=lambda: self._sort_file_tree(file_tree, 'path'))
+        file_tree.heading('open', text='打开')
+        file_tree.heading('delete', text='删除')
 
         file_tree.column('#0', width=40)
         file_tree.column('resolution', width=100)
-        file_tree.column('size', width=100)
-        file_tree.column('path', width=650)  # 增加宽度以显示完整路径
+        file_tree.column('size', width=80)
+        file_tree.column('path', width=500)
+        file_tree.column('open', width=50)
+        file_tree.column('delete', width=50)
 
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=file_tree.yview)
         file_tree.configure(yscrollcommand=scrollbar.set)
@@ -938,21 +982,189 @@ class SimilarityTab:
                 # 将正斜杠转换为反斜杠
                 path = path.replace('/', '\\')
             
-            file_tree.insert('', tk.END, text=str(idx), values=(resolution, size, path))
+            file_tree.insert('', tk.END, text=str(idx), values=(resolution, size, path, '打开', '删除'))
 
-        # 绑定双击事件（双击路径打开文件夹）
-        file_tree.bind('<Double-Button-1>', lambda e: self._open_file_from_detail(file_tree))
+        # 绑定双击事件（双击行：使用Windows资源管理器打开文件夹并选中文件）
+        def on_double_click(event):
+            item = file_tree.identify_row(event.y)
+            if item:
+                values = file_tree.item(item, 'values')
+                if len(values) >= 5:
+                    file_path = values[2]  # 从Treeview获取路径（已经格式化）
+                    import subprocess
+                    import os as os_module
+                    # 标准化路径
+                    file_path = os_module.path.normpath(file_path)
+                    subprocess.Popen(f'explorer /select,"{file_path}"')
+        
+        file_tree.bind('<Double-Button-1>', on_double_click)
         
         # 绑定选中事件（点击行显示预览）
         file_tree.bind('<<TreeviewSelect>>', 
                       lambda e: self._on_file_select(file_tree, preview_label, thumbnail_cache))
+        
+        # 绑定操作列点击（使用更精确的检测方式）
+        def on_tree_click(event):
+            # 获取点击的列
+            column = file_tree.identify_column(event.x)
+            item = file_tree.identify_row(event.y)
+            
+            if not item:
+                return
+            
+            values = file_tree.item(item, 'values')
+            if len(values) < 5:
+                return
+            
+            # 获取文件信息
+            file_path = values[2]
+            for file_info in group['files']:
+                import os as os_module
+                if os_module.path.normpath(file_info['path']) == os_module.path.normpath(file_path):
+                    if column == '#4':  # 打开列 - 直接运行文件
+                        try:
+                            import subprocess
+                            import sys
+                            
+                            if sys.platform == 'win32':
+                                subprocess.Popen(['start', '', file_info['path']], shell=True)
+                            elif sys.platform == 'darwin':
+                                subprocess.Popen(['open', file_info['path']])
+                            else:
+                                subprocess.Popen(['xdg-open', file_info['path']])
+                        except Exception as e:
+                            messagebox.showerror("错误", f"无法打开文件:\n{str(e)}")
+                    elif column == '#5':  # 删除列
+                        self._delete_single_file(file_tree, file_info, item, group, detail_window)
+                    break
+        
+        file_tree.bind('<Button-1>', on_tree_click)
 
-        # 按钮区域
-        btn_frame = ttk.Frame(detail_window)
-        btn_frame.pack(fill=tk.X, padx=10, pady=10)
+    def _on_click_action_column(self, tree, group, detail_window):
+        """处理操作列点击"""
+        # 获取点击位置
+        x = tree.winfo_pointerx() - tree.winfo_rootx()
+        y = tree.winfo_pointery() - tree.winfo_rooty()
+        
+        # 检查是否点击在单元格上
+        region = tree.identify("region", x, y)
+        if region != "cell":
+            return
+        
+        # 检查是否是操作列（第4列）
+        column = tree.identify_column(x)
+        if column != '#4':
+            return
+        
+        # 获取点击的行
+        item = tree.identify_row(y)
+        if not item:
+            return
+        
+        # 获取文件信息
+        values = tree.item(item, 'values')
+        if len(values) >= 4:
+            file_path = values[2]
+            # 查找对应的文件信息
+            for file_info in group['files']:
+                if file_info['path'] == file_path:
+                    self._delete_single_file(tree, file_info, item, group, detail_window)
+                    break
 
-        ttk.Button(btn_frame, text="打开选中文件的文件夹",
-                  command=lambda: self._open_selected_location(file_tree)).pack(side=tk.LEFT, padx=5)
+    def _delete_single_file(self, tree, file_info, item, group, detail_window):
+        """删除单个文件（使用批处理延迟删除）"""
+        if not messagebox.askyesno("确认删除", f"确定要删除以下文件吗？\n\n{file_info['path']}\n\n此操作不可恢复！"):
+            return
+        
+        import subprocess
+        import os
+        
+        try:
+            # 创建批处理文件，延迟1秒后删除
+            bat_file = os.path.join(os.environ['TEMP'], 'force_delete.bat')
+            
+            with open(bat_file, 'w', encoding='gbk') as f:
+                f.write('@echo off\n')
+                f.write('timeout /t 1 /nobreak >nul\n')
+                f.write(f'del /f /q "{file_info["path"]}"\n')
+                f.write('del "%~f0"\n')  # 删除自身
+            
+            # 异步执行批处理（隐藏窗口）
+            subprocess.Popen([bat_file], shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            
+            # 立即从UI中移除
+            tree.delete(item)
+            
+            group['files'] = [f for f in group['files'] if f['path'] != file_info['path']]
+            
+            # 如果所有文件都被删除，关闭详情窗口
+            if len(tree.get_children('')) == 0:
+                detail_window.destroy()
+            
+        except Exception as e:
+            messagebox.showerror("删除失败", f"无法创建删除任务:\n{str(e)}\n\n请手动删除文件: {file_info['path']}")
+
+    def _delete_selected_files(self, tree, group, detail_window):
+        """删除选中的文件"""
+        selection = tree.selection()
+        if not selection:
+            messagebox.showwarning("警告", "请先选择要删除的文件")
+            return
+        
+        # 获取选中的文件路径
+        files_to_delete = []
+        for item in selection:
+            values = tree.item(item, 'values')
+            if len(values) >= 3:
+                file_path = values[2]
+                # 查找对应的文件信息
+                for file_info in group['files']:
+                    if file_info['path'] == file_path:
+                        files_to_delete.append(file_info)
+                        break
+        
+        if not files_to_delete:
+            return
+        
+        # 确认删除
+        file_list = "\n".join([f['path'] for f in files_to_delete[:3]])
+        if len(files_to_delete) > 3:
+            file_list += f"\n...等共{len(files_to_delete)}个文件"
+        
+        if not messagebox.askyesno("确认删除", f"确定要删除以下{len(files_to_delete)}个文件吗？\n\n{file_list}\n\n此操作不可恢复！"):
+            return
+        
+        # 执行删除
+        deleted_count = 0
+        failed_files = []
+        
+        for file_info in files_to_delete:
+            try:
+                os.remove(file_info['path'])
+                deleted_count += 1
+                # 从Treeview中移除
+                for item in tree.get_children(''):
+                    if tree.item(item, 'values')[2] == file_info['path']:
+                        tree.delete(item)
+                        break
+            except Exception as e:
+                failed_files.append((file_info['path'], str(e)))
+        
+        # 显示结果
+        if deleted_count > 0:
+            messagebox.showinfo("删除完成", f"成功删除 {deleted_count} 个文件")
+            
+            # 如果所有文件都被删除，关闭详情窗口
+            if deleted_count == len(files_to_delete) and len(tree.get_children('')) == 0:
+                detail_window.destroy()
+        
+        if failed_files:
+            error_msg = f"以下 {len(failed_files)} 个文件删除失败:\n\n"
+            for path, error in failed_files[:5]:
+                error_msg += f"{os.path.basename(path)}: {error}\n"
+            if len(failed_files) > 5:
+                error_msg += f"...等共{len(failed_files)}个文件"
+            messagebox.showerror("删除失败", error_msg)
 
     def _on_file_select(self, tree, preview_label, thumbnail_cache):
         """当用户选中Treeview中的某一行时，显示图片预览"""
