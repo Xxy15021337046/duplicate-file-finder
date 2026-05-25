@@ -50,7 +50,7 @@ jobs:
         Compress-Archive -Path release\* -DestinationPath "文件重复校验工具-${{ github.ref_name }}-windows.zip"
         
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: windows-executable
         path: 文件重复校验工具-${{ github.ref_name }}-windows.zip
@@ -109,7 +109,7 @@ jobs:
         cd release && zip -r "../文件重复校验工具-${{ github.ref_name }}-linux.zip" .
         
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: linux-executable
         path: 文件重复校验工具-${{ github.ref_name }}-linux.zip
@@ -168,7 +168,7 @@ jobs:
         cd release && zip -r "../文件重复校验工具-${{ github.ref_name }}-macos.zip" .
         
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: macos-executable
         path: 文件重复校验工具-${{ github.ref_name }}-macos.zip
