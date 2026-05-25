@@ -386,6 +386,59 @@ class SimilarityTab:
         for item in self.tree.get_children(''):
             self.tree.delete(item)
 
+    def _run_scan_with_directories(self, directories):
+        """使用指定的目录列表执行扫描（不检查main_window.directories）"""
+        try:
+            from core.visual_similarity import ImageSimilarityFinder
+
+            # 获取配置
+            db_path = self.db_path_var.get()
+            threshold = self.threshold_var.get()
+            mode = self.mode_var.get()
+            incremental = False  # 从历史数据加载时使用全量扫描
+
+            self._log(f"开始相似度检测...")
+            self._log(f"目录数: {len(directories)}, 阈值: {threshold}, 模式: {mode}")
+
+            # 更新UI状态
+            self.main_window.root.after(0, lambda: self.start_btn.config(state=tk.DISABLED))
+            self.main_window.root.after(0, lambda: self.stop_btn.config(state=tk.NORMAL))
+            self.main_window.is_scanning = True
+            self.main_window.stop_flag.clear()
+
+            # 创建检测器
+            finder = ImageSimilarityFinder(
+                db_path=db_path,
+                batch_size=1000,
+                progress_callback=self._on_progress,
+                log_callback=lambda msg, lvl="INFO": self._log(msg, lvl)
+            )
+
+            # 构建索引（增量模式，保留已有数据）
+            self._log("正在加载图片索引...")
+            finder.build_index(directories, incremental=True)
+
+            # 查找相似组
+            self._log("正在查找相似图片组...")
+            groups = finder.find_similar_groups(threshold_phash=threshold, mode=mode)
+
+            self.current_groups = groups
+            self._log(f"检测完成！找到 {len(groups)} 个相似组")
+
+            # 显示结果
+            self._display_results(groups)
+
+        except Exception as e:
+            self._log(f"检测失败: {e}", "ERROR")
+            import traceback
+            print(traceback.format_exc())
+
+        finally:
+            self.main_window.is_scanning = False
+            self.main_window.root.after(0, lambda: self.start_btn.config(state=tk.NORMAL))
+            self.main_window.root.after(0, lambda: self.stop_btn.config(state=tk.DISABLED))
+            self.update_progress(0, "就绪")
+
     def _display_results(self, groups):
         """显示检测结果（存储结果，不显示在表格中）"""
         self.current_groups = groups
@@ -450,14 +503,42 @@ class SimilarityTab:
                     conn = sqlite3.connect(db_path)
                     cursor = conn.execute("SELECT COUNT(*) FROM image_index")
                     count = cursor.fetchone()[0]
-                    conn.close()
                     
                     if count > 0:
-                        # 数据库中有图片数据，自动重新执行相似度检测
-                        self._log(f"检测到历史数据 ({count} 张图片)，正在重新执行相似度检测...")
-                        self.start_scan()
-                        return
+                        # 数据库中有图片数据，从路径中提取目录并重新检测
+                        cursor = conn.execute("SELECT DISTINCT path FROM image_index")
+                        paths = [row[0] for row in cursor.fetchall()]
+                        conn.close()
+                        
+                        # 从路径中提取唯一的根目录（取每个路径的父目录）
+                        directories = set()
+                        for path in paths:
+                            # 向上查找直到找到存在的目录
+                            parent = os.path.dirname(path)
+                            while parent and not os.path.exists(parent):
+                                parent = os.path.dirname(parent)
+                            if parent and os.path.exists(parent):
+                                directories.add(parent)
+                        
+                        if directories:
+                            # 临时设置目录列表
+                            temp_directories = list(directories)
+                            self._log(f"检测到历史数据 ({count} 张图片)，从 {len(temp_directories)} 个目录重新检测...")
+                            
+                            # 直接执行检测，不经过start_scan的检查
+                            thread = threading.Thread(
+                                target=self._run_scan_with_directories,
+                                args=(temp_directories,),
+                                daemon=True
+                            )
+                            thread.start()
+                            return
+                    
+                    conn.close()
                 except Exception as e:
+                    import traceback
+                    print(f"[ERROR] 加载历史数据失败: {e}")
+                    print(traceback.format_exc())
                     pass  # 静默失败，继续显示空结果窗口
 
         # 如果窗口已存在，则聚焦到该窗口
