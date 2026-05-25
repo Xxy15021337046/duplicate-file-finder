@@ -503,9 +503,9 @@ class SimilarityTab:
 
         self.results_tree = ttk.Treeview(tree_frame, columns=('similarity', 'count', 'size', 'suffix', 'action'), show='tree headings')
         self.results_tree.heading('#0', text='组别')
-        self.results_tree.heading('similarity', text='平均相似度')
-        self.results_tree.heading('count', text='图片数量')
-        self.results_tree.heading('size', text='总大小')
+        self.results_tree.heading('similarity', text='平均相似度', command=lambda: self._sort_results_tree('similarity'))
+        self.results_tree.heading('count', text='图片数量', command=lambda: self._sort_results_tree('count'))
+        self.results_tree.heading('size', text='总大小', command=lambda: self._sort_results_tree('size'))
         self.results_tree.heading('suffix', text='后缀')
         self.results_tree.heading('action', text='操作')
 
@@ -515,6 +515,10 @@ class SimilarityTab:
         self.results_tree.column('size', width=100)
         self.results_tree.column('suffix', width=150)
         self.results_tree.column('action', width=60)
+        
+        # 记录排序状态
+        self._results_sort_reverse = False
+        self._results_last_sort_column = None
 
         scrollbar = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.results_tree.yview)
         self.results_tree.configure(yscrollcommand=scrollbar.set)
@@ -529,6 +533,47 @@ class SimilarityTab:
 
         # 初始显示所有结果
         self._display_all_results()
+
+    def _sort_results_tree(self, column):
+        """排序结果树（与详情窗口一致）"""
+        items = [(self.results_tree.set(k, column), k) for k in self.results_tree.get_children('')]
+        
+        # 根据列类型选择排序方式
+        if column == 'similarity':
+            # 相似度列：转换为浮点数后排序（去掉%符号）
+            try:
+                items.sort(key=lambda x: float(x[0].replace('%', '')))
+            except:
+                items.sort(key=lambda x: x[0])
+        elif column == 'count':
+            # 数量列：提取数字后排序（去掉"张"字）
+            try:
+                items.sort(key=lambda x: int(x[0].replace('张', '').strip()))
+            except:
+                items.sort(key=lambda x: x[0])
+        elif column == 'size':
+            # 大小列：转换为字节后排序
+            try:
+                items.sort(key=lambda x: self._parse_size_to_bytes(x[0]))
+            except:
+                items.sort(key=lambda x: x[0])
+        else:
+            # 其他列：字符串排序
+            items.sort(key=lambda x: x[0])
+
+        # 反转顺序（如果已经是升序则改为降序）
+        if self._results_last_sort_column == column:
+            self._results_sort_reverse = not self._results_sort_reverse
+        else:
+            self._results_sort_reverse = False
+            self._results_last_sort_column = column
+        
+        if self._results_sort_reverse:
+            items.reverse()
+
+        # 重新排列
+        for index, (val, k) in enumerate(items):
+            self.results_tree.move(k, '', index)
 
     def _display_all_results(self):
         """显示所有结果"""
@@ -627,6 +672,9 @@ class SimilarityTab:
 
     def _clear_filters(self):
         """清除筛选条件"""
+        # 重置排序状态
+        self._results_sort_reverse = False
+        self._results_last_sort_column = None
         self._display_all_results()
 
     def _on_click_actions_column(self, event):
