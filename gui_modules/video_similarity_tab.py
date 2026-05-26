@@ -1114,7 +1114,7 @@ class VideoSimilarityTab:
             if os.name == 'nt':
                 path = path.replace('/', '\\')
             
-            file_tree.insert('', tk.END, text=str(idx), values=(duration, resolution, fps, size, path, '打开', '删除'))
+            file_tree.insert('', tk.END, text=str(idx), values=(duration, resolution, fps, size, path, ' 打开 ', ' 删除 '))
 
         # 绑定事件
         # 双击行：使用Windows资源管理器打开文件夹并选中文件

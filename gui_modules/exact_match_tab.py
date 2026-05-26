@@ -760,8 +760,8 @@ class ExactMatchTab:
                     size_str,
                     ext.lower() if ext else '(无)',
                     file_info['path'],
-                    '打开',
-                    '删除'
+                    ' 打开 ',  # 添加空格使文字视觉上居中
+                    ' 删除 '   # 添加空格使文字视觉上居中
                 ))
 
             file_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -925,8 +925,8 @@ class ExactMatchTab:
                     size_str,
                     ext.lower() if ext else '(无)',
                     file_info['path'],
-                    '打开',
-                    '删除'
+                    ' 打开 ',  # 添加空格使文字视觉上居中
+                    ' 删除 '   # 添加空格使文字视觉上居中
                 ))
 
             file_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)

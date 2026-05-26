@@ -982,7 +982,7 @@ class SimilarityTab:
                 # 将正斜杠转换为反斜杠
                 path = path.replace('/', '\\')
             
-            file_tree.insert('', tk.END, text=str(idx), values=(resolution, size, path, '打开', '删除'))
+            file_tree.insert('', tk.END, text=str(idx), values=(resolution, size, path, ' 打开 ', ' 删除 '))
 
         # 绑定双击事件（双击行：使用Windows资源管理器打开文件夹并选中文件）
         def on_double_click(event):
