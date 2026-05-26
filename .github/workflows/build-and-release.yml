@@ -96,7 +96,11 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libgl1-mesa-dev libglib2.0-0 || true
+        # Try different package names for OpenGL libraries (compatible with various Ubuntu versions)
+        sudo apt-get install -y libgl1-mesa-dev || \
+        sudo apt-get install -y libgl1 || \
+        sudo apt-get install -y libgl1-mesa-glx || true
+        sudo apt-get install -y libglib2.0-0
 
     - name: Cache pip packages
       uses: actions/cache@v4
