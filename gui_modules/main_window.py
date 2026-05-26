@@ -79,6 +79,11 @@ class DuplicateFinderGUI:
         self.video_similarity_tab = VideoSimilarityTab(self.notebook, self)
         self.notebook.add(self.video_similarity_tab.frame, text="视频相似度检测")
 
+        # 标签4：多版本软件检测
+        from gui_modules.software_version_tab import SoftwareVersionTab
+        self.software_version_tab = SoftwareVersionTab(self.notebook, self)
+        self.notebook.add(self.software_version_tab.frame, text="多版本软件检测")
+
     def _create_header(self):
         """创建标题区域"""
         title_frame = ttk.Frame(self.root, padding="10")
@@ -168,8 +173,10 @@ class DuplicateFinderGUI:
             self.exact_match_tab.start_scan()
         elif current_tab == 1:  # 相似度检测标签页
             self.similarity_tab.start_scan()
-        else:  # 视频相似度检测标签页
+        elif current_tab == 2:  # 视频相似度检测标签页
             self.video_similarity_tab.start_scan()
+        else:  # 多版本软件检测标签页
+            self.software_version_tab.start_scan()
 
     def _stop_scan(self):
         """停止扫描"""
@@ -182,8 +189,10 @@ class DuplicateFinderGUI:
             self.exact_match_tab.view_results()
         elif current_tab == 1:
             self.similarity_tab.view_results()
-        else:
+        elif current_tab == 2:
             self.video_similarity_tab.view_results()
+        else:
+            self.software_version_tab.view_results()
 
     # ==================== 日志和进度方法 ====================
 
@@ -194,8 +203,10 @@ class DuplicateFinderGUI:
             self.exact_match_tab._log(message, level)
         elif current_tab == 1:
             self.similarity_tab._log(message, level)
-        else:
+        elif current_tab == 2:
             self.video_similarity_tab._log(message, level)
+        else:
+            self.software_version_tab._log(message, level)
 
     def update_progress(self, progress: float, message: str):
         """更新进度条（委托给当前标签页）"""
@@ -204,8 +215,10 @@ class DuplicateFinderGUI:
             self.exact_match_tab.update_progress(progress, message)
         elif current_tab == 1:
             self.similarity_tab.update_progress(progress, message)
-        else:
+        elif current_tab == 2:
             self.video_similarity_tab.update_progress(progress, message)
+        else:
+            self.software_version_tab.update_progress(progress, message)
 
     def update_detail(self, message: str):
         """更新详细信息（委托给当前标签页）"""
@@ -214,8 +227,10 @@ class DuplicateFinderGUI:
             self.exact_match_tab.update_detail(message)
         elif current_tab == 1:
             self.similarity_tab.update_detail(message)
-        else:
+        elif current_tab == 2:
             self.video_similarity_tab.update_detail(message)
+        else:
+            self.software_version_tab.update_detail(message)
 
 
 def main():

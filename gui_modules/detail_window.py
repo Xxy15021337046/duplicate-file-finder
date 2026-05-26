@@ -188,6 +188,33 @@ class DetailWindowConfig:
         'preview_type': 'video',
         'preview_title': '视频预览'
     }
+    
+    # 多版本软件配置
+    SOFTWARE_VERSION = {
+        'title_prefix': '软件',
+        'window_size': '1200x600',
+        'columns': ('version', 'size', 'path', 'open', 'delete'),
+        'headings': {
+            '#0': '#',
+            'version': '版本号',
+            'size': '大小',
+            'path': '完整路径',
+            'open': '打开',
+            'delete': '删除'
+        },
+        'column_widths': {
+            '#0': 40,
+            'version': 100,
+            'size': 80,
+            'path': 500,
+            'open': 35,
+            'delete': 35
+        },
+        'no_stretch_columns': {'#0', 'version', 'size', 'open', 'delete'},  # 这些列不拉伸(stretch=False)
+        'info_label_format': '共 {} 个版本  |  总大小: {}',
+        'has_preview': False,
+        'preview_type': None
+    }
 
 
 class FileDetailWindow:
@@ -237,9 +264,21 @@ class FileDetailWindow:
         title_frame.pack(fill=tk.X, padx=10, pady=5)
         
         # 根据配置获取信息值
-        info_value = self.group.get(self.config['info_label_key'], 'N/A')
-        file_count = len(self.group['files'])
-        info_text = self.config['info_label_format'].format(info_value, file_count)
+        if 'info_label_key' in self.config:
+            info_value = self.group.get(self.config['info_label_key'], 'N/A')
+            file_count = len(self.group['files'])
+            info_text = self.config['info_label_format'].format(info_value, file_count)
+        else:
+            # 对于软件版本等没有info_label_key的配置，直接使用info_label_format
+            file_count = len(self.group['files'])
+            # 如果format字符串中有占位符，使用实际数据替换
+            if '{}' in self.config['info_label_format']:
+                # 计算总大小用于显示
+                total_size = sum(_get_file_size(f['path']) for f in self.group['files'])
+                total_size_formatted = _format_total_size(total_size)
+                info_text = self.config['info_label_format'].format(file_count, total_size_formatted)
+            else:
+                info_text = self.config['info_label_format']
         
         ttk.Label(title_frame, text=info_text,
                  font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT)
@@ -645,6 +684,35 @@ def create_video_similarity_detail(parent, group, group_num, main_window=None):
     )
 
 
+def create_software_version_detail(parent, group, group_num, main_window=None):
+    """创建多版本软件详情窗口"""
+    
+    def formatter(file_info, idx):
+        version = file_info.get('version', 'unknown')
+        size = _format_size(_get_file_size(file_info['path']))
+        path = file_info['path']
+        if os.name == 'nt':
+            path = path.replace('/', '\\')
+        return (version, size, path, '打开', '删除')
+    
+    # 计算总大小用于信息标签
+    total_size = sum(_get_file_size(f['path']) for f in group['files'])
+    total_size_formatted = _format_total_size(total_size)
+    
+    # 修改info_label_format以使用实际数据
+    config = DetailWindowConfig.SOFTWARE_VERSION.copy()
+    config['info_label_format'] = f'共 {len(group["files"])} 个版本  |  总大小: {total_size_formatted}'
+    
+    return FileDetailWindow(
+        parent=parent,
+        group=group,
+        group_num=group_num,
+        config=config,
+        file_formatter=formatter,
+        main_window=main_window
+    )
+
+
 # 辅助函数
 def _format_file_size(size_bytes):
     """格式化文件大小"""
@@ -676,3 +744,22 @@ def _get_file_size(file_path):
         return os.path.getsize(file_path)
     except:
         return 0
+
+
+def _format_total_size(total_size):
+    """格式化总大小"""
+    if total_size == 0:
+        return "0 B"
+    
+    units = ['B', 'KB', 'MB', 'GB', 'TB']
+    unit_index = 0
+    size = float(total_size)
+    
+    while size >= 1024 and unit_index < len(units) - 1:
+        size /= 1024
+        unit_index += 1
+    
+    if unit_index == 0:
+        return f"{int(size)} {units[unit_index]}"
+    else:
+        return f"{size:.2f} {units[unit_index]}"
