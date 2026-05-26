@@ -67,7 +67,7 @@ echo ========================================
 echo.
 
 python -m PyInstaller ^
-    --name="文件重复校验工具-v3.0.0" ^
+    --name="文件重复校验工具-v4.0.0" ^
     --windowed ^
     --onefile ^
     --icon=NONE ^
@@ -77,6 +77,8 @@ python -m PyInstaller ^
     --hidden-import=imagehash ^
     --hidden-import=cv2 ^
     --hidden-import=numpy ^
+    --hidden-import=pefile ^
+    --hidden-import=packaging ^
     --noupx ^
     run_gui.py
 
@@ -95,11 +97,11 @@ echo.
 
 :: 创建发布文件夹
 mkdir release
-copy "dist\文件重复校验工具-v3.0.0.exe" "release\"
+copy "dist\文件重复校验工具-v4.0.0.exe" "release\"
 copy "README.md" "release\"
-copy "QUICK_START.md" "release\"
+if exist "QUICK_START.md" copy "QUICK_START.md" "release\"
 mkdir "release\docs"
-copy "docs\*.md" "release\docs\"
+if exist "docs\*.md" copy "docs\*.md" "release\docs\"
 
 echo 发布文件已准备就绪！
 echo.
@@ -109,9 +111,9 @@ dir release
 echo.
 echo ========================================
 echo 发布包包含:
-echo   - 文件重复校验工具-v3.0.0.exe (主程序)
+echo   - 文件重复校验工具-v4.0.0.exe (主程序)
 echo   - README.md (使用说明)
-echo   - QUICK_START.md (快速开始指南)
+echo   - QUICK_START.md (快速开始指南，如有)
 echo   - docs\ (详细文档)
 echo ========================================
 echo.

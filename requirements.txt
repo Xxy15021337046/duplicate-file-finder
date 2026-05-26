@@ -18,9 +18,14 @@ tqdm>=4.62.0           # 进度条美化（可选）
 # 视频相似度检测依赖
 opencv-python-headless>=4.5.0  # 视频解码和帧提取（无GUI版本，体积更小）
 
+# v4.0 多版本软件检测依赖 ⭐ NEW
+pefile>=2021.9.3       # PE文件元数据提取
+packaging>=21.0        # 语义化版本比较
+
 # 说明：
 # 1. 核心功能（duplicate_finder.py）不需要任何第三方库
 # 2. 增量扫描（incremental_scan.py）不需要任何第三方库
 # 3. 实时监控（file_watcher.py）需要安装 watchdog
 # 4. 图片相似度检测（visual_similarity.py）需要 Pillow 和 imagehash
 # 5. 视频相似度检测（video_similarity.py）需要 opencv-python-headless、Pillow 和 imagehash
+# 6. v4.0 多版本软件检测需要 pefile 和 packaging

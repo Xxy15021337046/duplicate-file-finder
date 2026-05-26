@@ -89,6 +89,8 @@ python -m PyInstaller ^
     --hidden-import=imagehash ^
     --hidden-import=cv2 ^
     --hidden-import=numpy ^
+    --hidden-import=pefile ^
+    --hidden-import=packaging ^
     run_gui.py
 
 if errorlevel 1 (
