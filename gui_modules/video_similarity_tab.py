@@ -1043,8 +1043,8 @@ class VideoSimilarityTab:
         file_tree.heading('fps', text='帧率')
         file_tree.heading('size', text='大小')
         file_tree.heading('path', text='完整路径')
-        file_tree.heading('open', text='打开')
-        file_tree.heading('delete', text='删除')
+        file_tree.heading('open', text='打开', anchor=tk.CENTER)
+        file_tree.heading('delete', text='删除', anchor=tk.CENTER)
 
         file_tree.column('#0', width=40)
         file_tree.column('duration', width=80)
@@ -1052,8 +1052,8 @@ class VideoSimilarityTab:
         file_tree.column('fps', width=60)
         file_tree.column('size', width=80)
         file_tree.column('path', width=300)
-        file_tree.column('open', width=50)
-        file_tree.column('delete', width=50)
+        file_tree.column('open', width=45, anchor=tk.CENTER)  # 固定3字符宽度，居中
+        file_tree.column('delete', width=45, anchor=tk.CENTER)  # 固定3字符宽度，居中
 
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=file_tree.yview)
         file_tree.configure(yscrollcommand=scrollbar.set)
