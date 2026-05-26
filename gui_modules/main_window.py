@@ -24,7 +24,7 @@ class DuplicateFinderGUI:
 
     def __init__(self, root):
         self.root = root
-        self.root.title("重复文件检测系统 v2.0")
+        self.root.title("文件重复校验工具 v4.0")
         self.root.geometry("1000x750")
 
         # 共享变量

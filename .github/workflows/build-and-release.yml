@@ -111,4 +111,5 @@ jobs:
         draft: false
         prerelease: false
         generate_release_notes: true
-        token: ${{ secrets.GITHUB_TOKEN }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
