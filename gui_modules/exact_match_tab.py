@@ -746,8 +746,8 @@ class ExactMatchTab:
             file_tree.column('size', width=80)
             file_tree.column('ext', width=60)
             file_tree.column('path', width=310)
-            file_tree.column('open', width=45, anchor=tk.CENTER)  # 固定3字符宽度，居中
-            file_tree.column('delete', width=45, anchor=tk.CENTER)  # 固定3字符宽度，居中
+            file_tree.column('open', width=35, anchor=tk.CENTER)  # 固定2字符宽度，居中
+            file_tree.column('delete', width=35, anchor=tk.CENTER)  # 固定2字符宽度，居中
 
             scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=file_tree.yview)
             file_tree.configure(yscrollcommand=scrollbar.set)
@@ -760,8 +760,8 @@ class ExactMatchTab:
                     size_str,
                     ext.lower() if ext else '(无)',
                     file_info['path'],
-                    ' 打开 ',  # 添加空格使文字视觉上居中
-                    ' 删除 '   # 添加空格使文字视觉上居中
+                    '打开',
+                    '删除'
                 ))
 
             file_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -911,8 +911,8 @@ class ExactMatchTab:
             file_tree.column('size', width=80)
             file_tree.column('ext', width=60)
             file_tree.column('path', width=350)
-            file_tree.column('open', width=45, anchor=tk.CENTER)  # 固定3字符宽度，居中
-            file_tree.column('delete', width=45, anchor=tk.CENTER)  # 固定3字符宽度，居中
+            file_tree.column('open', width=35, anchor=tk.CENTER)  # 固定2字符宽度，居中
+            file_tree.column('delete', width=35, anchor=tk.CENTER)  # 固定2字符宽度，居中
 
             scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=file_tree.yview)
             file_tree.configure(yscrollcommand=scrollbar.set)
@@ -925,8 +925,8 @@ class ExactMatchTab:
                     size_str,
                     ext.lower() if ext else '(无)',
                     file_info['path'],
-                    ' 打开 ',  # 添加空格使文字视觉上居中
-                    ' 删除 '   # 添加空格使文字视觉上居中
+                    '打开',
+                    '删除'
                 ))
 
             file_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)

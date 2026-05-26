@@ -962,8 +962,8 @@ class SimilarityTab:
         file_tree.column('resolution', width=100)
         file_tree.column('size', width=80)
         file_tree.column('path', width=500)
-        file_tree.column('open', width=45, anchor=tk.CENTER)  # 固定3字符宽度，居中
-        file_tree.column('delete', width=45, anchor=tk.CENTER)  # 固定3字符宽度，居中
+        file_tree.column('open', width=35, anchor=tk.CENTER)  # 固定2字符宽度，居中
+        file_tree.column('delete', width=35, anchor=tk.CENTER)  # 固定2字符宽度，居中
 
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=file_tree.yview)
         file_tree.configure(yscrollcommand=scrollbar.set)
@@ -982,7 +982,7 @@ class SimilarityTab:
                 # 将正斜杠转换为反斜杠
                 path = path.replace('/', '\\')
             
-            file_tree.insert('', tk.END, text=str(idx), values=(resolution, size, path, ' 打开 ', ' 删除 '))
+            file_tree.insert('', tk.END, text=str(idx), values=(resolution, size, path, '打开', '删除'))
 
         # 绑定双击事件（双击行：使用Windows资源管理器打开文件夹并选中文件）
         def on_double_click(event):
