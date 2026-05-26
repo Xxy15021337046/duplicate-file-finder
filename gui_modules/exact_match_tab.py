@@ -897,20 +897,22 @@ class ExactMatchTab:
             # Treeview for files
             file_tree = ttk.Treeview(
                 list_frame,
-                columns=('size', 'ext', 'path', 'action'),
+                columns=('size', 'ext', 'path', 'open', 'delete'),
                 show='tree headings'
             )
             file_tree.heading('#0', text='#')
             file_tree.heading('size', text='大小')
             file_tree.heading('ext', text='后缀')
             file_tree.heading('path', text='路径')
-            file_tree.heading('action', text='操作')
+            file_tree.heading('open', text='打开', anchor=tk.CENTER)
+            file_tree.heading('delete', text='删除', anchor=tk.CENTER)
 
             file_tree.column('#0', width=40)
             file_tree.column('size', width=80)
             file_tree.column('ext', width=60)
             file_tree.column('path', width=350)
-            file_tree.column('action', width=60)
+            file_tree.column('open', width=45, anchor=tk.CENTER)  # 固定3字符宽度，居中
+            file_tree.column('delete', width=45, anchor=tk.CENTER)  # 固定3字符宽度，居中
 
             scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=file_tree.yview)
             file_tree.configure(yscrollcommand=scrollbar.set)
@@ -923,6 +925,7 @@ class ExactMatchTab:
                     size_str,
                     ext.lower() if ext else '(无)',
                     file_info['path'],
+                    '打开',
                     '删除'
                 ))
 
@@ -930,23 +933,49 @@ class ExactMatchTab:
             scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
             # 绑定事件
-            # 双击打开文件所在文件夹
-            file_tree.bind('<Double-Button-1>', lambda e: self._open_file_location(file_tree, group))
+            # 双击行：使用Windows资源管理器打开文件夹并选中文件
+            def on_double_click(event):
+                item = file_tree.identify_row(event.y)
+                if item:
+                    idx = int(file_tree.item(item, 'text')) - 1
+                    if 0 <= idx < len(group['files']):
+                        file_path = group['files'][idx]['path']
+                        import subprocess
+                        subprocess.Popen(f'explorer /select,"{file_path}"')
             
-            # 绑定操作列点击（使用更精确的检测方式）
+            file_tree.bind('<Double-Button-1>', on_double_click)
+            
+            # 绑定操作列点击
             def on_tree_click(event):
-                # 获取点击的列
                 column = file_tree.identify_column(event.x)
-                if column == '#4':  # 操作列
-                    item = file_tree.identify_row(event.y)
-                    if item:
-                        values = file_tree.item(item, 'values')
-                        if len(values) >= 4 and values[3] == '删除':
-                            # 获取文件信息
-                            idx = int(file_tree.item(item, 'text')) - 1
-                            if 0 <= idx < len(group['files']):
-                                file_info = group['files'][idx]
-                                self._delete_single_file(file_tree, file_info, item, group, detail_window)
+                item = file_tree.identify_row(event.y)
+                
+                if not item:
+                    return
+                
+                values = file_tree.item(item, 'values')
+                if len(values) < 5:
+                    return
+                
+                idx = int(file_tree.item(item, 'text')) - 1
+                if 0 <= idx < len(group['files']):
+                    file_info = group['files'][idx]
+                    
+                    if column == '#5':  # 打开列 - 直接运行文件
+                        try:
+                            import subprocess
+                            import sys
+                            
+                            if sys.platform == 'win32':
+                                subprocess.Popen(['start', '', file_info['path']], shell=True)
+                            elif sys.platform == 'darwin':
+                                subprocess.Popen(['open', file_info['path']])
+                            else:
+                                subprocess.Popen(['xdg-open', file_info['path']])
+                        except Exception as e:
+                            messagebox.showerror("错误", f"无法打开文件:\n{str(e)}")
+                    elif column == '#6':  # 删除列
+                        self._delete_single_file(file_tree, file_info, item, group, detail_window)
             
             file_tree.bind('<Button-1>', on_tree_click)
 
