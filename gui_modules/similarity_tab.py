@@ -11,6 +11,9 @@ import os
 import subprocess
 from datetime import datetime
 
+# 导入公共详情窗口组件
+from gui_modules.detail_window import create_image_similarity_detail
+
 
 class SimilarityTab:
     """相似度检测标签页"""
@@ -908,137 +911,41 @@ class SimilarityTab:
         if not group:
             return
 
-        # 创建详情窗口（与精确匹配一致的样式）
-        detail_window = tk.Toplevel(self.results_window)
-        detail_window.title(f"相似组 #{group_num} 详情")
-        detail_window.geometry("1200x600")  # 增加宽度以容纳预览区域
-        
-        # 初始化缩略图缓存
-        thumbnail_cache = {}
-
-        # 标题区域（与精确匹配一致）
-        title_frame = ttk.Frame(detail_window)
-        title_frame.pack(fill=tk.X, padx=10, pady=5)
-
-        ttk.Label(title_frame, text=f"平均相似度: {group['avg_similarity']:.1f}%",
-                 font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT)
-        
-        ttk.Label(title_frame, text=f"  |  共 {len(group['files'])} 个相似图片",
-                 font=("微软雅黑", 10), foreground="gray").pack(side=tk.LEFT)
-
-        # 主内容区域（左右分栏）
-        content_frame = ttk.Frame(detail_window)
-        content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        
-        # 左侧：文件列表
-        list_frame = ttk.LabelFrame(content_frame, text="文件列表（双击路径打开文件夹，点击行查看预览）", padding="10")
-        list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
-        
-        # 右侧：图片预览
-        preview_frame = ttk.LabelFrame(content_frame, text="图片预览", padding="10")
-        preview_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
-        preview_frame.config(width=300)  # 固定预览区域宽度
-        preview_frame.pack_propagate(False)  # 防止子组件改变框架大小
-        
-        # 预览图片标签
-        preview_label = ttk.Label(preview_frame, text="选择文件查看预览", 
-                                 anchor='center', foreground='gray')
-        preview_label.pack(expand=True)
-
-        # Treeview for files
-        file_tree = ttk.Treeview(
-            list_frame,
-            columns=('resolution', 'size', 'path', 'open', 'delete'),
-            show='tree headings'
+        # 使用公共组件创建详情窗口
+        detail_window_obj = create_image_similarity_detail(
+            parent=self.results_window,
+            group=group,
+            group_num=group_num,
+            main_window=self.main_window
         )
-        file_tree.heading('#0', text='#')
-        file_tree.heading('resolution', text='分辨率', command=lambda: self._sort_file_tree(file_tree, 'resolution'))
-        file_tree.heading('size', text='大小', command=lambda: self._sort_file_tree(file_tree, 'size'))
-        file_tree.heading('path', text='完整路径', command=lambda: self._sort_file_tree(file_tree, 'path'))
-        file_tree.heading('open', text='打开', anchor=tk.CENTER)
-        file_tree.heading('delete', text='删除', anchor=tk.CENTER)
-
-        file_tree.column('#0', width=40)
-        file_tree.column('resolution', width=100)
-        file_tree.column('size', width=80)
-        file_tree.column('path', width=500)
-        file_tree.column('open', width=35, anchor=tk.CENTER)  # 固定2字符宽度，居中
-        file_tree.column('delete', width=35, anchor=tk.CENTER)  # 固定2字符宽度，居中
-
-        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=file_tree.yview)
-        file_tree.configure(yscrollcommand=scrollbar.set)
-
-        file_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        # 插入文件数据
-        for idx, file_info in enumerate(group['files'], start=1):
-            resolution = f"{file_info['width']}x{file_info['height']}"
-            size = self._format_size(self._get_file_size(file_info['path']))
-            path = file_info['path']
-            
-            # 确保路径使用Windows标准格式（统一使用反斜杠）
-            if os.name == 'nt':
-                # 将正斜杠转换为反斜杠
-                path = path.replace('/', '\\')
-            
-            file_tree.insert('', tk.END, text=str(idx), values=(resolution, size, path, '打开', '删除'))
-
-        # 绑定双击事件（双击行：使用Windows资源管理器打开文件夹并选中文件）
-        def on_double_click(event):
-            item = file_tree.identify_row(event.y)
-            if item:
-                values = file_tree.item(item, 'values')
-                if len(values) >= 5:
-                    file_path = values[2]  # 从Treeview获取路径（已经格式化）
-                    import subprocess
-                    import os as os_module
-                    # 标准化路径
-                    file_path = os_module.path.normpath(file_path)
-                    subprocess.Popen(f'explorer /select,"{file_path}"')
         
-        file_tree.bind('<Double-Button-1>', on_double_click)
+        # 绑定删除回调
+        detail_window_obj.delete_callback = self._delete_single_file
         
-        # 绑定选中事件（点击行显示预览）
-        file_tree.bind('<<TreeviewSelect>>', 
-                      lambda e: self._on_file_select(file_tree, preview_label, thumbnail_cache))
+        # 重写图片预览方法以支持图片相似度特有的预览逻辑
+        original_show_preview = detail_window_obj._show_image_preview
         
-        # 绑定操作列点击（使用更精确的检测方式）
-        def on_tree_click(event):
-            # 获取点击的列
-            column = file_tree.identify_column(event.x)
-            item = file_tree.identify_row(event.y)
-            
-            if not item:
-                return
-            
-            values = file_tree.item(item, 'values')
-            if len(values) < 5:
-                return
-            
-            # 获取文件信息
-            file_path = values[2]
-            for file_info in group['files']:
-                import os as os_module
-                if os_module.path.normpath(file_info['path']) == os_module.path.normpath(file_path):
-                    if column == '#4':  # 打开列 - 直接运行文件
-                        try:
-                            import subprocess
-                            import sys
-                            
-                            if sys.platform == 'win32':
-                                subprocess.Popen(['start', '', file_info['path']], shell=True)
-                            elif sys.platform == 'darwin':
-                                subprocess.Popen(['open', file_info['path']])
-                            else:
-                                subprocess.Popen(['xdg-open', file_info['path']])
-                        except Exception as e:
-                            messagebox.showerror("错误", f"无法打开文件:\n{str(e)}")
-                    elif column == '#5':  # 删除列
-                        self._delete_single_file(file_tree, file_info, item, group, detail_window)
-                    break
+        def enhanced_image_preview(file_info):
+            try:
+                from PIL import Image, ImageTk
+                
+                img_path = file_info['path']
+                if not os.path.exists(img_path):
+                    detail_window_obj.preview_label.config(text="文件不存在", foreground='red')
+                    return
+                
+                # 加载并缩放图片
+                img = Image.open(img_path)
+                max_size = (280, 280)
+                img.thumbnail(max_size, Image.LANCZOS)
+                
+                photo = ImageTk.PhotoImage(img)
+                detail_window_obj.preview_label.config(image=photo, text='')
+                detail_window_obj.preview_label.image = photo  # 保持引用防止被垃圾回收
+            except Exception as e:
+                detail_window_obj.preview_label.config(text=f"预览失败: {str(e)[:50]}", foreground='red')
         
-        file_tree.bind('<Button-1>', on_tree_click)
+        detail_window_obj._show_image_preview = enhanced_image_preview
 
     def _on_click_action_column(self, tree, group, detail_window):
         """处理操作列点击"""

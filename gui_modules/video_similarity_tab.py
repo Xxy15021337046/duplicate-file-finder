@@ -11,6 +11,9 @@ import os
 import subprocess
 from datetime import datetime
 
+# 导入公共详情窗口组件
+from gui_modules.detail_window import create_video_similarity_detail
+
 
 class VideoSimilarityTab:
     """视频相似度检测标签页"""
@@ -1008,173 +1011,183 @@ class VideoSimilarityTab:
         if not group:
             return
 
-        # 创建详情窗口
-        detail_window = tk.Toplevel(self.results_window)
-        detail_window.title(f"相似视频组 #{group_num} 详情")
-        detail_window.geometry("1200x600")  # 增加宽度以容纳预览区域
-
-        # 标题区域
-        title_frame = ttk.Frame(detail_window)
-        title_frame.pack(fill=tk.X, padx=10, pady=5)
-
-        ttk.Label(title_frame, text=f"平均相似度: {group['avg_similarity']:.1f}%",
-                 font=("微软雅黑", 12, "bold")).pack(side=tk.LEFT)
-        
-        ttk.Label(title_frame, text=f"  |  共 {len(group['files'])} 个相似视频",
-                 font=("微软雅黑", 10), foreground="gray").pack(side=tk.LEFT)
-
-        # 主内容区域：左侧列表 + 右侧预览
-        content_frame = ttk.Frame(detail_window)
-        content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-
-        # 左侧：文件列表
-        list_frame = ttk.LabelFrame(content_frame, text="视频列表（双击路径打开文件夹，点击行查看预览）", padding="10")
-        list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
-
-        # Treeview for files
-        file_tree = ttk.Treeview(
-            list_frame,
-            columns=('duration', 'resolution', 'fps', 'size', 'path', 'open', 'delete'),
-            show='tree headings'
+        # 使用公共组件创建详情窗口
+        detail_window_obj = create_video_similarity_detail(
+            parent=self.results_window,
+            group=group,
+            group_num=group_num,
+            main_window=self.main_window
         )
-        file_tree.heading('#0', text='#')
-        file_tree.heading('duration', text='时长')
-        file_tree.heading('resolution', text='分辨率')
-        file_tree.heading('fps', text='帧率')
-        file_tree.heading('size', text='大小')
-        file_tree.heading('path', text='完整路径')
-        file_tree.heading('open', text='打开', anchor=tk.CENTER)
-        file_tree.heading('delete', text='删除', anchor=tk.CENTER)
-
-        file_tree.column('#0', width=40)
-        file_tree.column('duration', width=80)
-        file_tree.column('resolution', width=100)
-        file_tree.column('fps', width=60)
-        file_tree.column('size', width=80)
-        file_tree.column('path', width=300)
-        file_tree.column('open', width=35, anchor=tk.CENTER)  # 固定2字符宽度，居中
-        file_tree.column('delete', width=35, anchor=tk.CENTER)  # 固定2字符宽度，居中
-
-        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=file_tree.yview)
-        file_tree.configure(yscrollcommand=scrollbar.set)
-
-        file_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        # 右侧：视频预览（支持多帧）
-        preview_frame = ttk.LabelFrame(content_frame, text="视频预览", padding="10")
-        preview_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=False, padx=(5, 0))
-        preview_frame.config(width=320)  # 固定预览区域宽度
-        preview_frame.pack_propagate(False)  # 防止子组件改变框架大小
-
-        # 主预览图
-        main_preview_label = ttk.Label(preview_frame, text="选择视频查看预览", 
-                                      font=("微软雅黑", 9), foreground="gray",
-                                      anchor='center')
-        main_preview_label.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
-
-        # 缩略图列表容器（用于长视频多帧预览）
-        thumbs_container = ttk.Frame(preview_frame)
-        thumbs_container.pack(fill=tk.BOTH, expand=True)
-
-        # 缩略图Canvas（可滚动）
-        thumbs_canvas = tk.Canvas(thumbs_container, height=300, highlightthickness=0)
-        thumbs_scrollbar = ttk.Scrollbar(thumbs_container, orient=tk.VERTICAL, command=thumbs_canvas.yview)
-        thumbs_inner_frame = ttk.Frame(thumbs_canvas)
-
-        thumbs_inner_frame.bind(
-            "<Configure>",
-            lambda e: thumbs_canvas.configure(scrollregion=thumbs_canvas.bbox("all"))
-        )
-
-        thumbs_canvas.create_window((0, 0), window=thumbs_inner_frame, anchor="nw")
-        thumbs_canvas.configure(yscrollcommand=thumbs_scrollbar.set)
-
-        thumbs_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        thumbs_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        # 缓存结构：{file_path: {'frames': [photo1, photo2, ...], 'timestamps': [t1, t2, ...]}}
-        # 使用main_window的属性来存储缓存，以便删除时可以清除
-        if not hasattr(self.main_window, '_video_thumbnail_cache'):
-            self.main_window._video_thumbnail_cache = {}
         
-        thumbnail_cache = self.main_window._video_thumbnail_cache
-        max_cached_videos = 10  # 最多缓存10个视频的完整预览
-        max_frames_per_video = 5  # 每个视频最多5帧
-
-        # 插入文件数据
-        for idx, file_info in enumerate(group['files'], start=1):
-            duration = self._format_duration(file_info['duration'])
-            resolution = f"{file_info['width']}x{file_info['height']}"
-            fps = f"{file_info['fps']:.1f}" if file_info['fps'] > 0 else "未知"
-            size = self._format_size(self._get_file_size(file_info['path']))
-            path = file_info['path']
-            
-            # 确保路径使用Windows标准格式（统一使用反斜杠）
-            if os.name == 'nt':
-                path = path.replace('/', '\\')
-            
-            file_tree.insert('', tk.END, text=str(idx), values=(duration, resolution, fps, size, path, '打开', '删除'))
-
-        # 绑定事件
-        # 双击行：使用Windows资源管理器打开文件夹并选中文件
-        def on_double_click(event):
-            item = file_tree.identify_row(event.y)
-            if item:
-                values = file_tree.item(item, 'values')
-                if len(values) >= 7:
-                    file_path = values[4]  # 从Treeview获取路径（已经格式化）
-                    import subprocess
-                    import os as os_module
-                    # 标准化路径
-                    file_path = os_module.path.normpath(file_path)
-                    subprocess.Popen(f'explorer /select,"{file_path}"')
+        # 绑定删除回调
+        detail_window_obj.delete_callback = lambda tree, file_info, item, grp, win: self._delete_single_file(tree, item, grp, win)
         
-        file_tree.bind('<Double-Button-1>', on_double_click)
+        # 重写视频预览方法以支持视频特有的多帧预览逻辑
+        original_show_video_preview = detail_window_obj._show_video_preview
         
-        # 点击行显示预览（支持多帧）
-        file_tree.bind('<ButtonRelease-1>', 
-                      lambda e: self._on_video_select_multiframe(
-                          file_tree, main_preview_label, thumbs_inner_frame, 
-                          thumbnail_cache, max_cached_videos, max_frames_per_video
-                      ))
-        
-        # 绑定操作列点击（使用更精确的检测方式）
-        def on_tree_click(event):
-            # 获取点击的列
-            column = file_tree.identify_column(event.x)
-            item = file_tree.identify_row(event.y)
-            
-            if not item:
-                return
-            
-            values = file_tree.item(item, 'values')
-            if len(values) < 7:
-                return
-            
-            # 获取文件信息
-            file_path = values[4]
-            for file_info in group['files']:
-                import os as os_module
-                if os_module.path.normpath(file_info['path']) == os_module.path.normpath(file_path):
-                    if column == '#6':  # 打开列 - 直接运行文件
-                        try:
-                            import subprocess
-                            import sys
+        def enhanced_video_preview(file_info, idx):
+            """增强版视频预览，支持多帧显示"""
+            try:
+                from PIL import Image, ImageTk
+                import cv2
+                
+                video_path = file_info['path']
+                if not os.path.exists(video_path):
+                    detail_window_obj.main_preview_label.config(text="文件不存在", foreground='red')
+                    return
+                
+                # 清空缩略图区域
+                for widget in detail_window_obj.thumbs_inner_frame.winfo_children():
+                    widget.destroy()
+                
+                # 获取或生成视频帧缓存
+                cache_key = video_path
+                if cache_key not in detail_window_obj.thumbnail_cache:
+                    # 使用OpenCV提取关键帧
+                    cap = cv2.VideoCapture(video_path)
+                    if not cap.isOpened():
+                        detail_window_obj.main_preview_label.config(text="无法打开视频", foreground='red')
+                        return
+                    
+                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    fps = cap.get(cv2.CAP_PROP_FPS)
+                    
+                    # 计算视频总时长(秒)
+                    duration = total_frames / fps if fps > 0 else 0
+                    
+                    print(f"[DEBUG] Video: {os.path.basename(video_path)}")
+                    print(f"  - Total frames: {total_frames}, FPS: {fps:.1f}, Duration: {duration:.1f}s")
+                    
+                    # 根据视频长度动态调整关键帧数量
+                    if duration < 5:  # 短视频(<5s): 只取3帧
+                        frame_positions = [0, 0.5, 1.0]
+                    elif duration < 30:  # 中短视频(5-30s): 取5帧
+                        frame_positions = [0, 0.25, 0.5, 0.75, 1.0]
+                    else:  # 长视频(>30s): 取5帧，但跳过开头和结尾的空白
+                        frame_positions = [0.05, 0.25, 0.5, 0.75, 0.95]
+                    
+                    frames_data = []
+                    
+                    for i, pos in enumerate(frame_positions):
+                        frame_idx = int(pos * (total_frames - 1)) if total_frames > 1 else 0
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+                        ret, frame = cap.read()
+                        
+                        if ret:
+                            # 转换为RGB
+                            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            img = Image.fromarray(frame_rgb)
                             
-                            if sys.platform == 'win32':
-                                subprocess.Popen(['start', '', file_info['path']], shell=True)
-                            elif sys.platform == 'darwin':
-                                subprocess.Popen(['open', file_info['path']])
+                            # 每个帧都需要两个版本：主图(大)和缩略图(小)
+                            # 主图：宽度300px，高度自适应
+                            main_img = img.copy()
+                            main_max_width = 300
+                            aspect_ratio = main_img.width / main_img.height
+                            main_height = int(main_max_width / aspect_ratio)
+                            if main_height > 200:
+                                main_height = 200
+                                main_width = int(main_height * aspect_ratio)
                             else:
-                                subprocess.Popen(['xdg-open', file_info['path']])
-                        except Exception as e:
-                            messagebox.showerror("错误", f"无法打开文件:\n{str(e)}")
-                    elif column == '#7':  # 删除列
-                        self._delete_single_file(file_tree, item, group, detail_window)
-                    break
+                                main_width = main_max_width
+                            main_img = main_img.resize((main_width, main_height), Image.LANCZOS)
+                            main_photo = ImageTk.PhotoImage(main_img)
+                            
+                            # 缩略图：80x60
+                            thumb_img = img.copy()
+                            thumb_img.thumbnail((80, 60), Image.LANCZOS)
+                            thumb_photo = ImageTk.PhotoImage(thumb_img)
+                            
+                            timestamp = pos * duration if duration > 0 else 0
+                            frames_data.append({
+                                'main_photo': main_photo,      # 主图用大尺寸
+                                'thumb_photo': thumb_photo,     # 缩略图用小尺寸
+                                'timestamp': timestamp,
+                                'frame_idx': frame_idx
+                            })
+                            
+                            print(f"  - Frame at {pos*100:.0f}%: idx={frame_idx}, time={timestamp:.1f}s")
+                    
+                    cap.release()
+                    
+                    if not frames_data:
+                        detail_window_obj.main_preview_label.config(text="无法提取视频帧", foreground='red')
+                        return
+                    
+                    detail_window_obj.thumbnail_cache[cache_key] = {
+                        'frames': frames_data,
+                        'main_photo': frames_data[0]['main_photo'] if frames_data else None
+                    }
+                    print(f"  - Extracted {len(frames_data)} frames successfully")
+                
+                # 显示主预览图（第一帧）- 固定宽度填满预览框
+                cached_data = detail_window_obj.thumbnail_cache[cache_key]
+                if cached_data['main_photo']:
+                    # 主图使用更大的尺寸，宽度填满预览框(约300px)
+                    detail_window_obj.main_preview_label.config(image=cached_data['main_photo'], text='')
+                    detail_window_obj.main_preview_label.image = cached_data['main_photo']
+                
+                # 清空缩略图区域（防止重复添加）
+                for widget in detail_window_obj.thumbs_inner_frame.winfo_children():
+                    widget.destroy()
+                
+                # 创建缩略图容器frame（横向排列）
+                thumbs_row_frame = ttk.Frame(detail_window_obj.thumbs_inner_frame)
+                thumbs_row_frame.pack(fill=tk.X, padx=5, pady=5)
+                
+                # 显示所有帧的缩略图，并排展示
+                for i, frame_data in enumerate(cached_data['frames']):
+                    # 创建单个缩略图的容器
+                    thumb_container = ttk.Frame(thumbs_row_frame)
+                    thumb_container.pack(side=tk.LEFT, padx=3)
+                    
+                    # 获取缩略图
+                    thumb_img = frame_data['thumb_photo']
+                    
+                    # 创建图片label（小尺寸，约80x60）
+                    frame_label = ttk.Label(
+                        thumb_container,
+                        image=thumb_img,
+                        cursor='hand2'
+                    )
+                    frame_label.pack()
+                    
+                    # 添加时间戳标签
+                    ts = frame_data['timestamp']
+                    mins = int(ts // 60)
+                    secs = int(ts % 60)
+                    time_label = ttk.Label(
+                        thumb_container,
+                        text=f"{mins:02d}:{secs:02d}",
+                        font=("微软雅黑", 7),
+                        foreground='gray',
+                        cursor='hand2'
+                    )
+                    time_label.pack(pady=(2, 0))
+                    
+                    # 使用工厂函数创建点击回调，避免闭包问题
+                    # 点击时切换到对应帧的大图
+                    def make_click_handler(main_photo):
+                        def handler(event=None):
+                            detail_window_obj.main_preview_label.config(image=main_photo, text='')
+                            detail_window_obj.main_preview_label.image = main_photo
+                        return handler
+                    
+                    click_handler = make_click_handler(frame_data['main_photo'])
+                    frame_label.bind('<Button-1>', click_handler)
+                    time_label.bind('<Button-1>', click_handler)
+                
+                # 管理缓存大小
+                if len(detail_window_obj.thumbnail_cache) > 10:
+                    # 移除最旧的缓存
+                    oldest_key = next(iter(detail_window_obj.thumbnail_cache))
+                    del detail_window_obj.thumbnail_cache[oldest_key]
+                    
+            except Exception as e:
+                detail_window_obj.main_preview_label.config(text=f"预览失败: {str(e)[:50]}", foreground='red')
+                import traceback
+                traceback.print_exc()
         
-        file_tree.bind('<Button-1>', on_tree_click)
+        detail_window_obj._show_video_preview = enhanced_video_preview
 
     def _on_click_action_column(self, tree, group, detail_window):
         """处理操作列点击事件"""
