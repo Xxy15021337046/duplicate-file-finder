@@ -80,67 +80,9 @@ jobs:
         path: dist/*.exe
         retention-days: 30
 
-  build-linux:
-    name: Build Linux Binary
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        # Try different package names for OpenGL libraries (compatible with various Ubuntu versions)
-        sudo apt-get install -y libgl1-mesa-dev || \
-        sudo apt-get install -y libgl1 || \
-        sudo apt-get install -y libgl1-mesa-glx || true
-        sudo apt-get install -y libglib2.0-0
-
-    - name: Cache pip packages
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pyinstaller
-
-    - name: Build executable
-      run: |
-        pyinstaller --name="duplicate-file-finder" \
-                    --windowed \
-                    --onefile \
-                    --add-data "core:core" \
-                    --add-data "gui_modules:gui_modules" \
-                    --hidden-import=PIL \
-                    --hidden-import=imagehash \
-                    --hidden-import=cv2 \
-                    --hidden-import=numpy \
-                    --hidden-import=pefile \
-                    --hidden-import=packaging \
-                    run_gui.py
-
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: duplicate-file-finder-linux
-        path: dist/duplicate-file-finder
-        retention-days: 30
-
   create-release:
     name: Create GitHub Release
-    needs: [build-windows, build-linux]
+    needs: [build-windows]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
 
@@ -154,17 +96,10 @@ jobs:
         name: duplicate-file-finder-windows
         path: artifacts/windows
 
-    - name: Download Linux artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: duplicate-file-finder-linux
-        path: artifacts/linux
-
     - name: Generate checksums
       run: |
-        cd artifacts
-        sha256sum windows/*.exe > SHA256SUMS.txt
-        sha256sum linux/duplicate-file-finder >> SHA256SUMS.txt
+        cd artifacts/windows
+        sha256sum *.exe > SHA256SUMS.txt
         cat SHA256SUMS.txt
 
     - name: Create Release
@@ -172,8 +107,7 @@ jobs:
       with:
         files: |
           artifacts/windows/*.exe
-          artifacts/linux/duplicate-file-finder
-          artifacts/SHA256SUMS.txt
+          artifacts/windows/SHA256SUMS.txt
         draft: false
         prerelease: false
         generate_release_notes: true
