@@ -11,6 +11,9 @@ import sqlite3
 import json
 import time
 import argparse
+import platform
+import subprocess
+import glob
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
@@ -27,16 +30,21 @@ class DuplicateFinder:
                  clear_db: bool = True, allowed_extensions: set = None):
         self.db_path = db_path
         self.chunk_size = chunk_size  # 读取文件的块大小（默认64KB，提升I/O效率）
-        
+
+        # Developed collaboratively with TRAE
+        # Last AI modification: 2026-07-02 10:07 UTC+08:00
+        # 修复点: 添加进度锁解决多线程竞态条件，添加磁盘类型自适应线程数
+        self._progress_lock = threading.Lock()  # 保护多线程进度计数器
+
         # 自动检测CPU核心数，设置最优线程数
         if max_workers is None:
             import multiprocessing
             cpu_count = multiprocessing.cpu_count()
-            # I/O密集型任务：线程数 = CPU核心数 * 2
-            self.max_workers = min(cpu_count * 2, 16)  # 最多16线程，避免过度竞争
+            # 根据磁盘类型自适应：SSD可多线程，HDD需减少线程避免寻道风暴
+            self.max_workers = self._detect_optimal_workers(cpu_count)
         else:
             self.max_workers = max_workers
-        
+
         self.lock = threading.Lock()
         self.progress_callback = progress_callback  # 进度回调函数
         self.stop_flag = stop_flag  # 停止标志
@@ -52,6 +60,57 @@ class DuplicateFinder:
             'wasted_space': 0
         }
         self._init_database()
+
+    def _detect_optimal_workers(self, cpu_count: int) -> int:
+        """
+        根据磁盘类型检测最优线程数
+
+        Note: Developed collaboratively with TRAE
+        Last AI modification: 2026-07-02 10:43 UTC+08:00
+        修复点: 替换无效的fsutil方案为Get-PhysicalDisk，正确解析磁盘类型
+        优化点: 将platform/subprocess/glob导入移至文件顶部，符合PEP8最佳实践
+
+        HDD上多线程会导致磁头寻道风暴，SSD上可充分利用多线程
+        """
+        is_hdd = False
+
+        try:
+            if platform.system() == 'Windows':
+                # Developed collaboratively with TRAE
+                # Last AI modification: 2026-07-02 10:20 UTC+08:00
+                # 修复: fsutil需要管理员权限且不返回SSD/HDD信息
+                #       改用 Get-PhysicalDisk cmdlet（Windows 8+/Server 2012+）
+                result = subprocess.run(
+                    ['powershell', '-Command',
+                     'Get-PhysicalDisk | Select-Object -ExpandProperty MediaType'],
+                    capture_output=True, text=True, timeout=5
+                )
+                # 解析输出，只要存在HDD磁盘就按HDD策略处理（保守策略）
+                media_types = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+                is_hdd = any(mt.lower() == 'hdd' for mt in media_types)
+            else:
+                # Developed collaboratively with TRAE
+                # Last AI modification: 2026-07-02 10:31 UTC+08:00
+                # 修复: 扩展glob模式覆盖所有块设备(sda/nvme0n1/mmcblk0/vda/hda等)
+                #       原 sd* 模式会遗漏 virtio(vd*)、IDE(hd*) 等 HDD 设备
+                for path in glob.glob('/sys/block/*/queue/rotational'):
+                    try:
+                        with open(path) as f:
+                            if f.read().strip() == '1':
+                                is_hdd = True
+                                break
+                    except (IOError, OSError):
+                        continue
+        except Exception:
+            # 检测失败时默认按SSD处理（现代电脑SSD更普遍）
+            is_hdd = False
+
+        if is_hdd:
+            # HDD: 限制2-4线程，避免寻道风暴
+            return min(cpu_count, 4)
+        else:
+            # SSD/NVMe: 可使用更多线程
+            return min(cpu_count * 2, 16)
 
     def _init_database(self):
         """初始化SQLite数据库，优化大规模数据性能"""
@@ -107,9 +166,16 @@ class DuplicateFinder:
             conn.close()
 
     def _get_connection(self) -> sqlite3.Connection:
-        """创建数据库连接"""
-        conn = sqlite3.connect(self.db_path, timeout=30)
+        """
+        创建数据库连接
+
+        Note: Developed collaboratively with TRAE
+        Last AI modification: 2026-07-02 10:07 UTC+08:00
+        修复点: 增加超时时间和busy_timeout，避免大规模写入时 "database is locked"
+        """
+        conn = sqlite3.connect(self.db_path, timeout=60.0)
         conn.execute('PRAGMA journal_mode=WAL')
+        conn.execute('PRAGMA busy_timeout=60000')  # 忙等待60秒，避免锁冲突
         return conn
 
     def _check_stop(self):
@@ -327,7 +393,13 @@ class DuplicateFinder:
         return size_groups
 
     def _compute_partial_hashes(self, size_groups: Dict[int, List[Dict]]) -> Dict[str, List[Dict]]:
-        """计算文件的部分哈希（前1MB），用于快速筛选"""
+        """
+        计算文件的部分哈希（前1MB），用于快速筛选
+
+        Note: Developed collaboratively with TRAE
+        Last AI modification: 2026-07-02 10:07 UTC+08:00
+        修复点: 使用线程锁保护进度计数器，解决多线程竞态条件
+        """
         hash_groups = defaultdict(list)
         total_files = sum(len(files) for files in size_groups.values())
         processed = 0
@@ -345,15 +417,17 @@ class DuplicateFinder:
 
                 partial_hash = hasher.hexdigest()
                 key = f"{file_info['file_size']}_{partial_hash}"
-                
-                # 更新进度
+
+                # 使用锁保护进度更新，避免竞态条件导致计数丢失
                 nonlocal processed
-                processed += 1
+                with self._progress_lock:
+                    processed += 1
+                    current = processed
                 # 减少进度更新频率，每500个文件更新一次（提升性能）
-                if self.progress_callback and processed % 500 == 0:
-                    progress = (processed / total_files) * 100
-                    self.progress_callback(progress, f"部分哈希: {processed}/{total_files}")
-                
+                if self.progress_callback and current % 500 == 0:
+                    progress = (current / total_files) * 100
+                    self.progress_callback(progress, f"部分哈希: {current}/{total_files}")
+
                 return (key, file_info)
             except InterruptedError:
                 raise
@@ -385,13 +459,22 @@ class DuplicateFinder:
         return {k: v for k, v in hash_groups.items() if len(v) > 1}
 
     def _compute_full_hashes(self, hash_groups: Dict[str, List[Dict]]) -> List[List[Dict]]:
-        """计算完整文件的哈希值，确认重复"""
+        """
+        计算完整文件的哈希值，确认重复
+
+        Note: Developed collaboratively with TRAE
+        Last AI modification: 2026-07-02 10:07 UTC+08:00
+        修复点:
+        1. 使用全局线程池替代每组创建/销毁，避免数万次线程池开销
+        2. 使用线程锁保护进度计数器，解决竞态条件
+        3. 进度计算改为全局连续，不再每组重置
+        """
         duplicate_groups = []
         total_files = sum(len(files) for files in hash_groups.values())
         processed = 0
 
-        def compute_full_hash(file_info: Dict) -> Optional[Tuple[str, Dict]]:
-            """计算完整文件的MD5哈希"""
+        def compute_full_hash(file_info: Dict, group_key: str) -> Optional[Tuple[str, str, Dict]]:
+            """计算完整文件的MD5哈希，返回(组键, 哈希, 文件信息)"""
             try:
                 self._check_stop()
                 file_path = file_info['file_path']
@@ -405,88 +488,107 @@ class DuplicateFinder:
                         hasher.update(data)
 
                 full_hash = hasher.hexdigest()
-                
-                # 更新进度
+
+                # 使用锁保护进度更新，避免竞态条件
                 nonlocal processed
-                processed += 1
-                # 减少进度更新频率，每100个文件更新一次（提升性能）
-                if self.progress_callback and processed % 100 == 0:
-                    progress = (processed / total_files) * 100
-                    self.progress_callback(progress, f"完整哈希: {processed}/{total_files}")
-                
-                return (full_hash, file_info)
+                with self._progress_lock:
+                    processed += 1
+                    current = processed
+                if self.progress_callback and current % 100 == 0:
+                    progress = (current / total_files) * 100
+                    self.progress_callback(progress, f"完整哈希: {current}/{total_files}")
+
+                return (group_key, full_hash, file_info)
             except InterruptedError:
                 raise
             except Exception as e:
                 print(f"错误: 无法读取文件 {file_path}: {e}")
                 return None
 
-        # 对每个潜在重复组计算完整哈希
+        # 收集所有需要计算完整哈希的文件及其组键
+        all_tasks = []
         for group_key, files in hash_groups.items():
             if len(files) < 2:
                 continue
+            for f in files:
+                all_tasks.append((f, group_key))
 
-            full_hash_groups = defaultdict(list)
+        # 按组收集哈希结果
+        results_by_group = defaultdict(lambda: defaultdict(list))
 
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                futures = {executor.submit(compute_full_hash, f): f for f in files}
+        # 使用单个全局线程池处理所有组，避免反复创建/销毁线程池
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = {
+                executor.submit(compute_full_hash, f, gk): (f, gk)
+                for f, gk in all_tasks
+            }
 
-                for future in as_completed(futures):
-                    try:
-                        result = future.result()
-                        if result:
-                            full_hash, file_info = result
-                            full_hash_groups[full_hash].append(file_info)
-                    except InterruptedError:
-                        raise
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    if result:
+                        group_key, full_hash, file_info = result
+                        results_by_group[group_key][full_hash].append(file_info)
+                except InterruptedError:
+                    raise
 
-            # 添加确认的重复组
+        # 从结果中提取确认的重复组
+        for group_key, full_hash_groups in results_by_group.items():
             for full_hash, dup_files in full_hash_groups.items():
                 if len(dup_files) > 1:
                     duplicate_groups.append(dup_files)
-                    
-                    # 只记录重复组的统计信息，不打印具体文件路径
                     self._log(f"  ✓ 发现 {len(dup_files)} 个重复文件 (大小: {self._format_size(dup_files[0]['file_size'])})")
 
         return duplicate_groups
 
     def export_results(self, duplicate_groups: List[List[Dict]], output_file: str = "duplicates.json"):
-        """导出重复文件结果为JSON格式"""
+        """
+        导出重复文件结果为JSON格式（流式写入，避免内存峰值）
+
+        Note: Developed collaboratively with TRAE
+        Last AI modification: 2026-07-02 10:07 UTC+08:00
+        修复点: 改为流式写入JSON，避免大量重复组时内存翻倍
+        """
         print(f"\n正在导出结果到 {output_file}...")
 
-        results = {
-            'scan_summary': {
-                'total_files_scanned': self.stats['total_files'],
-                'total_size_scanned': self.stats['total_size'],
-                'total_size_formatted': self._format_size(self.stats['total_size']),
-                'duplicate_groups': self.stats['duplicate_groups'],
-                'duplicate_files': self.stats['duplicate_files'],
-                'wasted_space': self.stats['wasted_space'],
-                'wasted_space_formatted': self._format_size(self.stats['wasted_space'])
-            },
-            'duplicate_groups': []
-        }
-
-        for i, group in enumerate(duplicate_groups, 1):
-            group_info = {
-                'group_id': i,
-                'file_count': len(group),
-                'file_size': group[0]['file_size'],
-                'file_size_formatted': self._format_size(group[0]['file_size']),
-                'files': []
-            }
-
-            for file_info in group:
-                group_info['files'].append({
-                    'path': file_info['file_path'],
-                    'size': file_info['file_size'],
-                    'modified_time': file_info['modified_time']
-                })
-
-            results['duplicate_groups'].append(group_info)
-
         with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
+            # 写入头部和摘要
+            f.write('{\n')
+            f.write('  "scan_summary": {\n')
+            f.write(f'    "total_files_scanned": {self.stats["total_files"]},\n')
+            f.write(f'    "total_size_scanned": {self.stats["total_size"]},\n')
+            f.write(f'    "total_size_formatted": "{self._format_size(self.stats["total_size"])}",\n')
+            f.write(f'    "duplicate_groups": {self.stats["duplicate_groups"]},\n')
+            f.write(f'    "duplicate_files": {self.stats["duplicate_files"]},\n')
+            f.write(f'    "wasted_space": {self.stats["wasted_space"]},\n')
+            f.write(f'    "wasted_space_formatted": "{self._format_size(self.stats["wasted_space"])}"\n')
+            f.write('  },\n')
+            f.write('  "duplicate_groups": [\n')
+
+            # 流式写入每个重复组，避免一次性构建整个JSON树
+            for i, group in enumerate(duplicate_groups, 1):
+                group_json = json.dumps({
+                    'group_id': i,
+                    'file_count': len(group),
+                    'file_size': group[0]['file_size'],
+                    'file_size_formatted': self._format_size(group[0]['file_size']),
+                    'files': [
+                        {
+                            'path': file_info['file_path'],
+                            'size': file_info['file_size'],
+                            'modified_time': file_info['modified_time']
+                        }
+                        for file_info in group
+                    ]
+                }, ensure_ascii=False, indent=4)
+                # 缩进对齐
+                indented = '\n'.join('    ' + line if line else line for line in group_json.split('\n'))
+                f.write('    ' + indented.strip())
+                if i < len(duplicate_groups):
+                    f.write(',')
+                f.write('\n')
+
+            f.write('  ]\n}')
 
         print(f"结果已保存到: {output_file}")
 
