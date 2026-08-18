@@ -1,0 +1,47 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: main
+nodes_managed: true
+exported_at: "2026-08-18T04:19:44Z"
+modules:
+    "":
+        dir_name: 文件重复校验工具（根入口）
+        title: 文件重复校验工具（根入口）
+        scope:
+            - README.md
+            - QUICK_START.md
+            - .gitignore
+            - requirements.txt
+            - build.bat
+            - build.sh
+            - build_release.bat
+            - start.bat
+            - run_gui.py
+            - 文件重复校验工具.spec
+        source_files: []
+        children:
+            - core
+            - gui_modules
+        depends_on: []
+        related_to: []
+    core:
+        dir_name: 核心检测引擎（重复文件_多版本软件_图片与视频相似度）
+        title: 核心检测引擎（重复文件/多版本软件/图片与视频相似度）
+        scope:
+            - core/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: gui_modules
+    gui_modules:
+        dir_name: 重复文件检测 GUI 界面模块
+        title: 重复文件检测 GUI 界面模块
+        scope:
+            - gui_modules/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: core

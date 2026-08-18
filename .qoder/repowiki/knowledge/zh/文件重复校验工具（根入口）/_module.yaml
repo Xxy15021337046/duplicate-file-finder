@@ -1,0 +1,17 @@
+schema_version: 1
+module_path: ""
+title: 文件重复校验工具（根入口）
+scope:
+    - README.md
+    - QUICK_START.md
+    - .gitignore
+    - requirements.txt
+    - build.bat
+    - build.sh
+    - build_release.bat
+    - start.bat
+    - run_gui.py
+    - 文件重复校验工具.spec
+source_files: []
+depends_on: []
+related_to: []
