@@ -1,13 +1,22 @@
 # DuplicateFinder类API
 
 <cite>
-**本文档引用的文件**
+**本文引用的文件**
 - [duplicate_finder.py](file://core/duplicate_finder.py)
 - [exact_match_tab.py](file://gui_modules/exact_match_tab.py)
 - [main_window.py](file://gui_modules/main_window.py)
 - [__init__.py](file://core/__init__.py)
 - [README.md](file://README.md)
 </cite>
+
+## 更新摘要
+**变更内容**
+- 更新了构造函数参数说明，增加了新的线程优化参数
+- 新增了磁盘类型自适应线程数检测功能的详细说明
+- 更新了批量处理机制的性能优化说明
+- 增强了回调机制的线程安全说明
+- 完善了错误处理和异常处理策略
+- 更新了JSON导出格式的流式写入特性
 
 ## 目录
 1. [简介](#简介)
@@ -28,6 +37,8 @@ DuplicateFinder类是文件重复检测系统的核心组件，采用多级哈�
 1. **文件大小分组** - 快速筛选可能重复的文件
 2. **部分哈希计算** - 计算文件前1MB的MD5哈希进行快速筛选
 3. **完整哈希验证** - 计算整个文件的MD5哈希进行精确匹配
+
+**更新** 最新版本引入了磁盘类型自适应线程数检测，能够根据硬件类型（HDD/SSD）自动优化并发性能，并添加了线程安全的进度管理机制。
 
 ## 项目结构
 
@@ -66,13 +77,13 @@ SWD --> DB
 ```
 
 **图表来源**
-- [duplicate_finder.py:1-588](file://core/duplicate_finder.py#L1-L588)
+- [duplicate_finder.py:1-757](file://core/duplicate_finder.py#L1-L757)
 - [exact_match_tab.py:1-941](file://gui_modules/exact_match_tab.py#L1-L941)
 - [main_window.py:1-245](file://gui_modules/main_window.py#L1-L245)
 
 **章节来源**
-- [duplicate_finder.py:1-588](file://core/duplicate_finder.py#L1-L588)
-- [README.md:338-708](file://README.md#L338-L708)
+- [duplicate_finder.py:1-757](file://core/duplicate_finder.py#L1-L757)
+- [README.md:1-200](file://README.md#L1-L200)
 
 ## 核心组件
 
@@ -85,26 +96,31 @@ DuplicateFinder类的构造函数接受以下参数：
 | 参数名 | 类型 | 默认值 | 描述 |
 |--------|------|--------|------|
 | `db_path` | str | `"file_index.db"` | SQLite数据库文件路径 |
-| `chunk_size` | int | `65536` | 文件读取块大小（字节） |
-| `max_workers` | int | `None` | 并行工作线程数（None时自动检测CPU核心数） |
-| `progress_callback` | callable | `None` | 进度回调函数，接收(progress, message)参数 |
+| `chunk_size` | int | `65536` | 文件读取块大小（字节），影响I/O性能和内存使用 |
+| `max_workers` | int | `None` | 并行工作线程数（None时自动检测CPU核心数和磁盘类型） |
+| `progress_callback` | callable | `None` | 进度回调函数，接收(progress, message)参数，线程安全 |
 | `stop_flag` | threading.Event | `None` | 停止标志，用于中断扫描操作 |
 | `log_callback` | callable | `None` | 日志回调函数，接收(message)参数 |
 | `clear_db` | bool | `True` | 是否清空数据库中的旧数据 |
 | `allowed_extensions` | set | `None` | 允许的文件后缀集合（None表示不过滤） |
+
+**更新** 新增了线程安全的进度管理机制，通过`_progress_lock`保护多线程环境下的进度计数器更新。
 
 ### 初始化选项和配置参数
 
 系统提供了多种初始化选项来优化不同场景下的性能：
 
 - **数据库优化**：使用WAL模式、内存缓存、内存映射等SQLite3优化参数
-- **并行处理**：自动检测CPU核心数，I/O密集型任务设置最优线程数
+- **智能并行处理**：自动检测CPU核心数和磁盘类型，设置最优线程数
+  - HDD设备：限制2-4线程，避免磁头寻道风暴
+  - SSD/NVMe设备：可使用更多线程（最多16个）
 - **文件过滤**：支持按文件类型过滤，减少扫描范围
 - **增量扫描**：支持增量扫描模式，避免重复索引
+- **批量优化**：增大的批量大小（5000个文件）减少数据库事务开销
 
 **章节来源**
-- [duplicate_finder.py:25-54](file://core/duplicate_finder.py#L25-L54)
-- [duplicate_finder.py:56-94](file://core/duplicate_finder.py#L56-L94)
+- [duplicate_finder.py:28-73](file://core/duplicate_finder.py#L28-L73)
+- [duplicate_finder.py:75-131](file://core/duplicate_finder.py#L75-L131)
 
 ## 架构概览
 
@@ -139,8 +155,9 @@ Finder->>UI : JSON格式结果
 ```
 
 **图表来源**
-- [duplicate_finder.py:120-285](file://core/duplicate_finder.py#L120-L285)
-- [duplicate_finder.py:453-492](file://core/duplicate_finder.py#L453-L492)
+- [duplicate_finder.py:208-239](file://core/duplicate_finder.py#L208-L239)
+- [duplicate_finder.py:324-387](file://core/duplicate_finder.py#L324-L387)
+- [duplicate_finder.py:597-658](file://core/duplicate_finder.py#L597-L658)
 
 ## 详细组件分析
 
@@ -156,9 +173,10 @@ def scan_directories(self, directories: List[str]):
 #### 功能特性
 
 1. **批量目录扫描**：支持同时扫描多个目录
-2. **进度回调**：实时更新扫描进度和状态
+2. **进度回调**：实时更新扫描进度和状态，线程安全
 3. **错误处理**：优雅处理目录不存在、权限不足等异常情况
 4. **文件过滤**：支持按文件类型过滤，减少不必要的扫描
+5. **智能批处理**：使用5000个文件的批量大小优化数据库写入性能
 
 #### 目录扫描流程
 
@@ -176,8 +194,8 @@ CheckLink --> |是| SkipLink["跳过符号链接"]
 CheckLink --> |否| CheckFilter{"符合文件过滤?"}
 CheckFilter --> |否| SkipFilter["跳过文件"]
 CheckFilter --> |是| GetStats["获取文件统计信息"]
-GetStats --> BatchInsert["批量插入数据库"]
-BatchInsert --> UpdateProgress["更新进度回调"]
+GetStats --> BatchInsert["批量插入数据库(5000个/批)"]
+BatchInsert --> UpdateProgress["更新进度回调(每1000个文件)"]
 SkipLink --> NextFile["下一个文件"]
 SkipFilter --> NextFile
 SkipDir --> NextDir["下一个目录"]
@@ -190,8 +208,8 @@ Stats --> End([结束])
 ```
 
 **图表来源**
-- [duplicate_finder.py:120-218](file://core/duplicate_finder.py#L120-L218)
-- [duplicate_finder.py:158-218](file://core/duplicate_finder.py#L158-L218)
+- [duplicate_finder.py:208-239](file://core/duplicate_finder.py#L208-L239)
+- [duplicate_finder.py:248-311](file://core/duplicate_finder.py#L248-L311)
 
 #### 批量处理机制
 
@@ -200,10 +218,12 @@ Stats --> End([结束])
 - **批量大小**：默认5000个文件一批，减少数据库事务开销
 - **内存控制**：控制批量大小避免内存占用过高
 - **进度更新**：每处理1000个文件更新一次进度，平衡性能和用户体验
+- **线程安全**：使用锁机制保护进度计数器的多线程访问
 
 **章节来源**
-- [duplicate_finder.py:120-218](file://core/duplicate_finder.py#L120-L218)
-- [duplicate_finder.py:220-228](file://core/duplicate_finder.py#L220-L228)
+- [duplicate_finder.py:208-239](file://core/duplicate_finder.py#L208-L239)
+- [duplicate_finder.py:248-311](file://core/duplicate_finder.py#L248-L311)
+- [duplicate_finder.py:312-323](file://core/duplicate_finder.py#L312-L323)
 
 ### find_duplicates方法
 
@@ -231,8 +251,9 @@ NoDuplicates --> End
 ```
 
 **图表来源**
-- [duplicate_finder.py:229-285](file://core/duplicate_finder.py#L229-L285)
-- [duplicate_finder.py:300-327](file://core/duplicate_finder.py#L300-L327)
+- [duplicate_finder.py:324-387](file://core/duplicate_finder.py#L324-L387)
+- [duplicate_finder.py:436-504](file://core/duplicate_finder.py#L436-L504)
+- [duplicate_finder.py:506-595](file://core/duplicate_finder.py#L506-L595)
 
 #### 文件大小分组
 
@@ -248,7 +269,7 @@ NoDuplicates --> End
 
 - **块大小**：固定读取前1MB内容，平衡准确性和性能
 - **并行处理**：使用ThreadPoolExecutor并行计算哈希
-- **进度监控**：每处理500个文件更新一次进度
+- **进度监控**：每处理500个文件更新一次进度，线程安全
 - **内存效率**：只读取必要字节，避免大文件的完整读取
 
 #### 完整哈希验证
@@ -259,11 +280,13 @@ NoDuplicates --> End
 - **并行处理**：对每个候选组内的文件并行计算哈希
 - **精确匹配**：只有完整哈希相同的文件才被认为是重复文件
 - **统计更新**：计算重复文件数量和浪费空间
+- **全局线程池**：使用单个全局线程池替代每组创建/销毁，避免数万次线程池开销
 
 **章节来源**
-- [duplicate_finder.py:229-285](file://core/duplicate_finder.py#L229-L285)
-- [duplicate_finder.py:329-386](file://core/duplicate_finder.py#L329-L386)
-- [duplicate_finder.py:387-451](file://core/duplicate_finder.py#L387-L451)
+- [duplicate_finder.py:324-387](file://core/duplicate_finder.py#L324-L387)
+- [duplicate_finder.py:402-434](file://core/duplicate_finder.py#L402-L434)
+- [duplicate_finder.py:436-504](file://core/duplicate_finder.py#L436-L504)
+- [duplicate_finder.py:506-595](file://core/duplicate_finder.py#L506-L595)
 
 ### export_results方法
 
@@ -313,9 +336,12 @@ export_results方法将检测结果导出为JSON格式文件，便于后续分�
 - **格式化输出**：自动格式化文件大小显示
 - **编码处理**：使用UTF-8编码确保中文字符正确显示
 - **结构化数据**：提供易于解析的JSON格式
+- **流式写入**：采用流式写入方式，避免大量重复组时内存翻倍
+
+**更新** 新增了流式写入功能，通过直接写入JSON字符串而非构建完整的JSON树，显著降低了内存占用。
 
 **章节来源**
-- [duplicate_finder.py:453-492](file://core/duplicate_finder.py#L453-L492)
+- [duplicate_finder.py:597-658](file://core/duplicate_finder.py#L597-L658)
 
 ### print_summary方法
 
@@ -336,8 +362,8 @@ print_summary方法打印扫描摘要信息，提供人类可读的统计结果�
 系统使用统一的格式化方法来显示文件大小，支持B、KB、MB、GB、TB等单位的自动转换。
 
 **章节来源**
-- [duplicate_finder.py:493-503](file://core/duplicate_finder.py#L493-L503)
-- [duplicate_finder.py:505-512](file://core/duplicate_finder.py#L505-L512)
+- [duplicate_finder.py:660-670](file://core/duplicate_finder.py#L660-L670)
+- [duplicate_finder.py:672-679](file://core/duplicate_finder.py#L672-L679)
 
 ### 回调机制
 
@@ -345,7 +371,7 @@ DuplicateFinder类提供了三种主要的回调机制来支持GUI集成和用�
 
 #### progress_callback
 
-进度回调函数用于实时更新扫描进度：
+进度回调函数用于实时更新扫描进度，具有线程安全保障：
 
 ```python
 def progress_callback(progress: float, message: str):
@@ -359,6 +385,8 @@ def progress_callback(progress: float, message: str):
 ```
 
 在GUI环境中，progress_callback通常用于更新进度条和状态标签。
+
+**更新** 新增了线程安全的进度管理机制，通过`_progress_lock`保护多线程环境下的进度计数器更新，解决竞态条件问题。
 
 #### stop_flag
 
@@ -388,9 +416,10 @@ def log_callback(message: str):
 ```
 
 **章节来源**
-- [duplicate_finder.py:41-43](file://core/duplicate_finder.py#L41-L43)
-- [duplicate_finder.py:115-118](file://core/duplicate_finder.py#L115-L118)
-- [duplicate_finder.py:287-298](file://core/duplicate_finder.py#L287-L298)
+- [duplicate_finder.py:33-35](file://core/duplicate_finder.py#L33-L35)
+- [duplicate_finder.py:45-46](file://core/duplicate_finder.py#L45-L46)
+- [duplicate_finder.py:203-206](file://core/duplicate_finder.py#L203-L206)
+- [duplicate_finder.py:389-400](file://core/duplicate_finder.py#L389-L400)
 
 ## 依赖关系分析
 
@@ -410,16 +439,19 @@ DF --> COLLECTIONS[collections模块]
 DF --> PATHLIB[pathlib模块]
 DF --> ARGPARSE[argparse模块]
 DF --> CONTEXTLIB[contextlib模块]
+DF --> PLATFORM[platform模块]
+DF --> SUBPROCESS[subprocess模块]
+DF --> GLOB[glob模块]
 ```
 
 **图表来源**
-- [duplicate_finder.py:7-19](file://core/duplicate_finder.py#L7-L19)
+- [duplicate_finder.py:7-22](file://core/duplicate_finder.py#L7-L22)
 
 ### 外部依赖
 
 DuplicateFinder类仅依赖Python标准库，无需额外的第三方依赖：
 
-- **Python标准库**：hashlib、threading、sqlite3、json、time、argparse等
+- **Python标准库**：hashlib、threading、sqlite3、json、time、argparse、platform、subprocess、glob等
 - **无外部依赖**：完全使用内置模块实现功能
 
 ### 内部依赖
@@ -435,11 +467,11 @@ MAIN --> EXACT
 ```
 
 **图表来源**
-- [exact_match_tab.py:323-349](file://gui_modules/exact_match_tab.py#L323-L349)
-- [main_window.py:32-33](file://gui_modules/main_window.py#L32-L33)
+- [exact_match_tab.py:1-200](file://gui_modules/exact_match_tab.py#L1-L200)
+- [main_window.py:1-245](file://gui_modules/main_window.py#L1-L245)
 
 **章节来源**
-- [duplicate_finder.py:1-588](file://core/duplicate_finder.py#L1-L588)
+- [duplicate_finder.py:1-757](file://core/duplicate_finder.py#L1-L757)
 - [exact_match_tab.py:1-941](file://gui_modules/exact_match_tab.py#L1-L941)
 - [main_window.py:1-245](file://gui_modules/main_window.py#L1-L245)
 
@@ -453,11 +485,16 @@ MAIN --> EXACT
 - **内存优化**：设置缓存大小、临时表存储位置、内存映射大小
 - **索引优化**：为常用查询字段创建索引
 - **事务管理**：使用上下文管理器确保事务完整性
+- **忙等待优化**：设置busy_timeout=60000ms，避免大规模写入时的锁冲突
 
 ### 并行处理优化
 
+- **智能线程数**：根据磁盘类型自动选择最优线程数
+  - HDD：2-4线程，避免磁头寻道风暴
+  - SSD/NVMe：最多16线程，充分利用并行能力
 - **线程池管理**：使用ThreadPoolExecutor管理工作线程
-- **批量处理**：减少数据库写入次数
+- **批量处理**：增大的批量大小（5000个文件）减少数据库写入次数
+- **全局线程池**：在完整哈希计算中使用单个全局线程池，避免反复创建/销毁开销
 - **进度控制**：合理控制进度更新频率，平衡性能和用户体验
 
 ### 内存管理
@@ -465,6 +502,9 @@ MAIN --> EXACT
 - **流式读取**：使用分块读取避免大文件占用过多内存
 - **批量插入**：使用executemany进行批量数据库操作
 - **垃圾回收**：及时释放不需要的对象引用
+- **流式JSON写入**：避免构建完整的JSON树，降低内存峰值
+
+**更新** 新增了磁盘类型自适应机制和线程安全的进度管理，进一步优化了大规模数据处理性能。
 
 ## 故障排除指南
 
@@ -479,8 +519,9 @@ MAIN --> EXACT
 
 **解决方案**：
 - 使用SSD硬盘
-- 调整max_workers参数
+- 调整max_workers参数或使用自动检测
 - 启用文件类型过滤
+- 利用磁盘类型自适应功能
 
 #### 2. 内存使用过高
 
@@ -493,6 +534,7 @@ MAIN --> EXACT
 - 调整chunk_size参数
 - 减少批量大小
 - 确保及时释放内存
+- 使用流式JSON导出
 
 #### 3. 扫描中断
 
@@ -505,6 +547,18 @@ MAIN --> EXACT
 - 使用stop_flag进行优雅停止
 - 检查系统资源
 - 适当调整并发设置
+- 利用线程安全的进度管理
+
+#### 4. 数据库锁定问题
+
+**可能原因**：
+- 并发写入冲突
+- 长时间事务持有锁
+
+**解决方案**：
+- 使用WAL模式和busy_timeout
+- 减少事务持续时间
+- 优化批量大小
 
 ### 异常处理策略
 
@@ -514,20 +568,30 @@ DuplicateFinder类提供了完善的异常处理机制：
 - **OSError/PermissionError**：处理文件访问权限问题
 - **数据库异常**：使用事务管理和回滚机制
 - **编码异常**：使用UTF-8编码避免字符编码问题
+- **线程安全**：使用锁机制保护共享资源的并发访问
+
+**更新** 增强了线程安全机制，解决了多线程环境下的竞态条件问题。
 
 **章节来源**
-- [duplicate_finder.py:115-118](file://core/duplicate_finder.py#L115-L118)
-- [duplicate_finder.py:208-210](file://core/duplicate_finder.py#L208-L210)
-- [duplicate_finder.py:287-298](file://core/duplicate_finder.py#L287-L298)
+- [duplicate_finder.py:203-206](file://core/duplicate_finder.py#L203-L206)
+- [duplicate_finder.py:300-301](file://core/duplicate_finder.py#L300-L301)
+- [duplicate_finder.py:389-400](file://core/duplicate_finder.py#L389-L400)
 
 ## 结论
 
 DuplicateFinder类是一个功能完整、性能优异的文件重复检测工具。其核心优势包括：
 
 1. **多级哈希算法**：通过三层过滤策略实现高精度和高性能
-2. **并行处理**：充分利用多核CPU资源提升处理速度
+2. **智能并行处理**：根据磁盘类型自动优化线程数，充分利用多核CPU资源
 3. **内存优化**：采用流式读取和批量处理避免内存占用过高
 4. **数据库优化**：使用SQLite3的多种优化技术提升查询性能
-5. **回调机制**：提供完整的回调接口支持GUI集成
+5. **线程安全**：提供完整的线程安全机制，支持高并发场景
+6. **回调机制**：提供完整的回调接口支持GUI集成
+
+**更新** 最新版本特别增强了大规模数据处理能力，通过磁盘类型自适应、线程安全进度管理和流式JSON导出等功能，能够有效处理TB级别的大规模数据，在保证准确性的同时最大化处理性能。
 
 该系统特别适合处理TB级别的大规模数据，能够有效识别完全相同的文件，为用户提供准确的重复文件检测结果。通过合理的参数配置和优化策略，可以在保证准确性的同时最大化处理性能。
+
+**章节来源**
+- [duplicate_finder.py:1-757](file://core/duplicate_finder.py#L1-L757)
+- [README.md:1-200](file://README.md#L1-L200)

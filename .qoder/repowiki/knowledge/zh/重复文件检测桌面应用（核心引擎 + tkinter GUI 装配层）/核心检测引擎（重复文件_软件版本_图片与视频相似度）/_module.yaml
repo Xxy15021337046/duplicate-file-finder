@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: core
-title: 核心检测引擎（重复文件/多版本软件/图片与视频相似度）
+title: 核心检测引擎（重复文件/软件版本/图片与视频相似度）
 scope:
     - core/
 source_files: []

@@ -1,6 +1,6 @@
 schema_version: 1
 module_path: ""
-title: 文件重复校验工具（根入口）
+title: 重复文件检测桌面应用（核心引擎 + tkinter GUI 装配层）
 scope:
     - README.md
     - QUICK_START.md

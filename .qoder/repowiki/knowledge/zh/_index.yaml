@@ -3,11 +3,11 @@ schema_version: 1
 locale: zh-CN
 branch: main
 nodes_managed: true
-exported_at: "2026-08-18T04:19:44Z"
+exported_at: "2026-08-18T08:32:32Z"
 modules:
     "":
-        dir_name: 文件重复校验工具（根入口）
-        title: 文件重复校验工具（根入口）
+        dir_name: 重复文件检测桌面应用（核心引擎 + tkinter GUI 装配层）
+        title: 重复文件检测桌面应用（核心引擎 + tkinter GUI 装配层）
         scope:
             - README.md
             - QUICK_START.md
@@ -26,8 +26,8 @@ modules:
         depends_on: []
         related_to: []
     core:
-        dir_name: 核心检测引擎（重复文件_多版本软件_图片与视频相似度）
-        title: 核心检测引擎（重复文件/多版本软件/图片与视频相似度）
+        dir_name: 核心检测引擎（重复文件_软件版本_图片与视频相似度）
+        title: 核心检测引擎（重复文件/软件版本/图片与视频相似度）
         scope:
             - core/
         source_files: []
